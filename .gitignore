@@ -1,0 +1,13 @@
+.idea
+/cifar-100-python/
+/ModelCheckpoints/
+/TestImages/
+/ImgClassNN_*
+checkpoint
+cifar-100-fine_label_names.txt
+ImgClassNN_0.1.index
+ImgClassNN_0.1.data-00001-of-00002
+ImgClassNN_0.1.data-00002-of-00002
+model_cifar_0.2.data-00000-of-00002
+model_cifar_0.2.data-00001-of-00002
+model_cifar_0.2.index
