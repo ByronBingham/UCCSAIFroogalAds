@@ -2,11 +2,13 @@ import tensorflow as tf
 from PIL import Image
 import numpy as np
 from modules import ImgClassModels
+import pandas as pd
 
 CLASSES = 100
 MODEL_CHECKPOINT = "./model_cifar_0.2"
 LABEL_NAME_PATH = "./cifar-100-fine_label_names.txt"
 CLASS_THRESHOLD = 1.0
+CSV_PATH = "./testcsv.csv"
 
 
 class ImgProcessor:
@@ -82,6 +84,22 @@ class ImgProcessor:
 
             self.classifyImage(uInput)
 
+    def updateCSV(self, cls, count=1):
+        csv_dataframe = pd.read_csv(CSV_PATH, index_col=0)
+        print(csv_dataframe)
+        if cls in csv_dataframe.index:
+            csv_dataframe.loc[cls, "count"] += count
+        else:
+            tmp = pd.DataFrame([[count]], columns=['count'], index=[cls])
+            tmp.index.name = 'id'
+            print(tmp)
+            csv_dataframe = csv_dataframe.append(tmp)
+
+        print(csv_dataframe)
+        csv_dataframe.to_csv(path_or_buf=CSV_PATH)
+
 
 imgProc = ImgProcessor()
-imgProc.demoMode()
+# imgProc.demoMode()
+# imgProc.updateCSV(cls='cat', count=15)
+imgProc.updateCSV(cls='money', count=1)
