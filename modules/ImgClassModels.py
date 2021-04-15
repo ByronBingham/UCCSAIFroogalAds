@@ -292,26 +292,26 @@ def yolo_detection_layer(input_layer, n_classes, anchors, img_size, data_format)
     return inputs
 
 
-def upsample(inputs, out_shape, data_format):
+def upsample_layer(input_layer, out_shape, data_format):
     """
         Upsamples to `out_shape` using nearest neighbor interpolation.
         modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
     """
 
     if data_format == 'channels_first':
-        inputs = tf.transpose(inputs, [0, 2, 3, 1])
+        input_layer = tf.transpose(input_layer, [0, 2, 3, 1])
         new_height = out_shape[3]
         new_width = out_shape[2]
     else:
         new_height = out_shape[2]
         new_width = out_shape[1]
 
-    inputs = tf.compat.v1.image.resize_nearest_neighbor(inputs, (new_height, new_width))
+    out = tf.compat.v1.image.resize_nearest_neighbor(input_layer, (new_height, new_width))
 
     if data_format == 'channels_first':
-        inputs = tf.transpose(inputs, [0, 3, 1, 2])
+        out = tf.transpose(out, [0, 3, 1, 2])
 
-    return inputs
+    return out
 
 
 def batch_norm(input_layer, training, data_format):
@@ -431,91 +431,59 @@ def non_max_suppression(inputs, n_classes, max_output_size, iou_threshold,
     return boxes_dicts
 
 
-def model_yolo_v3(n_classes, model_size, max_output_size, iou_threshold,
-                  confidence_threshold, training, data_format=None):
+def getYoloModelLayers(model_size, n_classes, training, data_format):
     """
-        Creates the model.
-
-            Args:
-                n_classes: Number of class labels.
-                model_size: The input size of the model.
-                max_output_size: Max number of boxes to be selected for each class.
-                iou_threshold: Threshold for the IOU.
-                confidence_threshold: Threshold for the confidence score.
-                data_format: The input format.
-                training: Boolean; whether or not the model is for training
-
-            Returns:
-                None.
-
-            modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
+        returns an input layer and output layers to be used with keras Model class
     """
+    input_layer = tf.keras.layers.Input(shape=(model_size, model_size, 3), dtype=tf.float32)
 
-    if not data_format:
-        if tf.test.is_built_with_cuda():
-            data_format = 'channels_first'
-        else:
-            data_format = 'channels_last'
+    dn_route1, dn_route2, darknet_1 = darknet_53_block(input_layer=input_layer, training=training,
+                                                       data_format=data_format)
+    yolo_route_1, conv_1 = yolo_conv_block(input_layer=darknet_1, filters=512, training=training,
+                                           data_format=data_format)
+    detect_1 = yolo_detection_layer(input_layer=conv_1, n_classes=n_classes,
+                                    anchors=_ANCHORS[6:9],
+                                    img_size=model_size,
+                                    data_format=data_format)
+    pad_1 = conv2d_fixed_padding(input_layer=yolo_route_1, filters=256, kernel_size=1,
+                                 data_format=data_format)
+    batch_norm_1 = batch_norm(input_layer=pad_1, training=training,
+                              data_format=data_format)
+    leakyReLU_1 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_1)
+    upsample_size = dn_route2.get_shape().as_list()
+    upsample_1 = upsample_layer(input_layer=leakyReLU_1, out_shape=upsample_size,
+                                data_format=data_format)
+    axis = 1 if data_format == 'channels_first' else 3
+    concat_1 = tf.concat([upsample_1, dn_route2], axis=axis)
 
-    if data_format == 'channels_first':
-        inputs = tf.transpose(inputs, [0, 3, 1, 2])
+    ####################################################################################################################
 
-    inputs = inputs / 255
+    yolo_route_2, conv_2 = yolo_conv_block(input_layer=concat_1, filters=256, training=training,
+                                           data_format=data_format)
+    detect_2 = yolo_detection_layer(input_layer=conv_2, n_classes=n_classes,
+                                    anchors=_ANCHORS[3:6],
+                                    img_size=model_size,
+                                    data_format=data_format)
+    pad_2 = conv2d_fixed_padding(input_layer=yolo_route_2, filters=128, kernel_size=1,
+                                 data_format=data_format)
+    batch_norm_2 = batch_norm(input_layer=pad_2, training=training,
+                              data_format=data_format)
+    leakyReLU_2 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_2)
+    upsample_size = dn_route1.get_shape().as_list()
+    upsample_2 = upsample_layer(input_layer=leakyReLU_2, out_shape=upsample_size,
+                                data_format=data_format)
+    concat_2 = tf.concat([upsample_2, dn_route1], axis=axis)
 
-    route1, route2, inputs = darknet_53_block(inputs, training=training,
-                                              data_format=self.data_format)
+    ####################################################################################################################
 
-    route, inputs = yolo_convolution_block(
-        inputs, filters=512, training=training,
-        data_format=self.data_format)
-    detect1 = yolo_layer(inputs, n_classes=self.n_classes,
-                         anchors=_ANCHORS[6:9],
-                         img_size=self.model_size,
-                         data_format=self.data_format)
+    yolo_route_3, conv_3 = yolo_conv_block(
+        input_layer=concat_2, filters=128, training=training,
+        data_format=data_format)
+    detect_3 = yolo_detection_layer(input_layer=conv_3, n_classes=n_classes,
+                                    anchors=_ANCHORS[0:3],
+                                    img_size=model_size,
+                                    data_format=data_format)
 
-    inputs = conv2d_fixed_padding(route, filters=256, kernel_size=1,
-                                  data_format=self.data_format)
-    inputs = batch_norm(inputs, training=training,
-                        data_format=self.data_format)
-    inputs = tf.nn.leaky_relu(inputs, alpha=_LEAKY_RELU)
-    upsample_size = route2.get_shape().as_list()
-    inputs = upsample(inputs, out_shape=upsample_size,
-                      data_format=self.data_format)
-    axis = 1 if self.data_format == 'channels_first' else 3
-    inputs = tf.concat([inputs, route2], axis=axis)
-    route, inputs = yolo_convolution_block(
-        inputs, filters=256, training=training,
-        data_format=self.data_format)
-    detect2 = yolo_layer(inputs, n_classes=self.n_classes,
-                         anchors=_ANCHORS[3:6],
-                         img_size=self.model_size,
-                         data_format=self.data_format)
+    out = tf.concat([detect_1, detect_2, detect_3], axis=1)
 
-    inputs = conv2d_fixed_padding(route, filters=128, kernel_size=1,
-                                  data_format=self.data_format)
-    inputs = batch_norm(inputs, training=training,
-                        data_format=self.data_format)
-    inputs = tf.nn.leaky_relu(inputs, alpha=_LEAKY_RELU)
-    upsample_size = route1.get_shape().as_list()
-    inputs = upsample(inputs, out_shape=upsample_size,
-                      data_format=self.data_format)
-    inputs = tf.concat([inputs, route1], axis=axis)
-    route, inputs = yolo_convolution_block(
-        inputs, filters=128, training=training,
-        data_format=self.data_format)
-    detect3 = yolo_layer(inputs, n_classes=self.n_classes,
-                         anchors=_ANCHORS[0:3],
-                         img_size=self.model_size,
-                         data_format=self.data_format)
-
-    inputs = tf.concat([detect1, detect2, detect3], axis=1)
-
-    inputs = build_boxes(inputs)
-
-    boxes_dicts = non_max_suppression(
-        inputs, n_classes=self.n_classes,
-        max_output_size=self.max_output_size,
-        iou_threshold=self.iou_threshold,
-        confidence_threshold=self.confidence_threshold)
-
-    return boxes_dicts
+    return input_layer, out
