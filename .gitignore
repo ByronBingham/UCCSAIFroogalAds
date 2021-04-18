@@ -11,3 +11,6 @@ ImgClassNN_0.1.data-00002-of-00002
 model_cifar_0.2.data-00000-of-00002
 model_cifar_0.2.data-00001-of-00002
 model_cifar_0.2.index
+darknet53.weights
+yolov3_320.weights
+yolov3_416.weights

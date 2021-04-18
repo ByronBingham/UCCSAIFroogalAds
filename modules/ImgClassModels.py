@@ -1,13 +1,7 @@
 import tensorflow as tf
-
-CIFAR_MODEL_CHECKPOINT_PATH = "./ImgClassNN_0.1"
-_BATCH_NORM_DECAY = 0.9
-_BATCH_NORM_EPSILON = 1e-05
-_LEAKY_RELU = 0.1
-_ANCHORS = [(10, 13), (16, 30), (33, 23),
-            (30, 61), (62, 45), (59, 119),
-            (116, 90), (156, 198), (373, 326)]  # anchors based on data from COCO dataset
-_MODEL_SIZE = (416, 416)
+import numpy as np
+from . import YoloLossFunctions
+from . import Constants
 
 
 def model_cifar_01(training, classes=0, dropout_rate=0.0, trainingSpeed=0.001):
@@ -62,34 +56,42 @@ def model_cifar_01(training, classes=0, dropout_rate=0.0, trainingSpeed=0.001):
 def darknet_53_residual_block(input_layer, filters, data_format, training, strides=1):
     conv2d_1 = conv2d_fixed_padding(input_layer=input_layer, filters=filters, kernel_size=1, data_format=data_format,
                                     strides=strides)
+    conv2d_1.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_1 = batch_norm(input_layer=conv2d_1, training=training, data_format=data_format)
 
-    leaky_ReLU_1 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_1)
+    leaky_ReLU_1 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_1)
+    leaky_ReLU_1.trainable = Constants.TRAIN_DARKNET53
 
     conv2d_2 = conv2d_fixed_padding(input_layer=leaky_ReLU_1, filters=filters, kernel_size=3, data_format=data_format,
                                     strides=strides)
+    conv2d_2.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_2 = batch_norm(input_layer=conv2d_2, training=training, data_format=data_format)
 
-    leaky_ReLU_2 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_2)
+    leaky_ReLU_2 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_2)
+    leaky_ReLU_2.trainable = Constants.TRAIN_DARKNET53
 
     return leaky_ReLU_2 + input_layer
 
 
 def darknet_53_block(input_layer, data_format, training):
     conv2d_1 = conv2d_fixed_padding(input_layer=input_layer, filters=32, kernel_size=3, data_format=data_format)
+    conv2d_1.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_1 = batch_norm(input_layer=conv2d_1, training=training, data_format=data_format)
 
-    leaky_ReLU_1 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_1)
+    leaky_ReLU_1 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_1)
+    leaky_ReLU_1.trainable = Constants.TRAIN_DARKNET53
 
     conv2d_2 = conv2d_fixed_padding(input_layer=leaky_ReLU_1, filters=32, kernel_size=3, data_format=data_format,
                                     strides=2)
+    conv2d_2.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_2 = batch_norm(input_layer=conv2d_2, training=training, data_format=data_format)
 
-    leaky_ReLU_2 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_2)
+    leaky_ReLU_2 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_2)
+    leaky_ReLU_2.trainable = Constants.TRAIN_DARKNET53
 
     darknet53_res_layer_1 = darknet_53_residual_block(input_layer=leaky_ReLU_2, filters=32, training=training,
                                                       data_format=data_format)
@@ -97,10 +99,12 @@ def darknet_53_block(input_layer, data_format, training):
     conv2d_3 = conv2d_fixed_padding(input_layer=darknet53_res_layer_1, filters=128, kernel_size=3,
                                     data_format=data_format,
                                     strides=2)
+    conv2d_3.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_3 = batch_norm(input_layer=conv2d_3, training=training, data_format=data_format)
 
-    leaky_ReLU_3 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_3)
+    leaky_ReLU_3 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_3)
+    leaky_ReLU_3.trainable = Constants.TRAIN_DARKNET53
 
     darknet53_res_layer_2 = darknet_53_residual_block(input_layer=leaky_ReLU_3, filters=64, training=training,
                                                       data_format=data_format)
@@ -111,10 +115,12 @@ def darknet_53_block(input_layer, data_format, training):
     conv2d_4 = conv2d_fixed_padding(input_layer=darknet53_res_layer_3, filters=256, kernel_size=3,
                                     data_format=data_format,
                                     strides=2)
+    conv2d_4.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_4 = batch_norm(input_layer=conv2d_4, training=training, data_format=data_format)
 
-    leaky_ReLU_4 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_4)
+    leaky_ReLU_4 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_4)
+    leaky_ReLU_4.trainable = Constants.TRAIN_DARKNET53
 
     darknet53_res_layer_4 = darknet_53_residual_block(input_layer=leaky_ReLU_4, filters=128, training=training,
                                                       data_format=data_format)
@@ -140,10 +146,12 @@ def darknet_53_block(input_layer, data_format, training):
     conv2d_5 = conv2d_fixed_padding(input_layer=darknet53_res_layer_11, filters=512, kernel_size=3,
                                     data_format=data_format,
                                     strides=2)
+    conv2d_5.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_5 = batch_norm(input_layer=conv2d_5, training=training, data_format=data_format)
 
-    leaky_ReLU_5 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_5)
+    leaky_ReLU_5 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_5)
+    leaky_ReLU_5.trainable = Constants.TRAIN_DARKNET53
 
     darknet53_res_layer_12 = darknet_53_residual_block(input_layer=leaky_ReLU_5, filters=256, training=training,
                                                        data_format=data_format)
@@ -173,10 +181,12 @@ def darknet_53_block(input_layer, data_format, training):
 
     conv2d_6 = conv2d_fixed_padding(input_layer=darknet53_res_layer_19, filters=1024, kernel_size=3,
                                     data_format=data_format, strides=2)
+    conv2d_6.trainable = Constants.TRAIN_DARKNET53
 
     batch_norm_6 = batch_norm(input_layer=conv2d_6, training=training, data_format=data_format)
 
-    leaky_ReLU_6 = tf.keras.layers.LeakyReLU(alpha=_LEAKY_RELU)(batch_norm_6)
+    leaky_ReLU_6 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_6)
+    leaky_ReLU_6.trainable = Constants.TRAIN_DARKNET53
 
     darknet53_res_layer_20 = darknet_53_residual_block(input_layer=leaky_ReLU_6, filters=512, training=training,
                                                        data_format=data_format)
@@ -200,34 +210,34 @@ def yolo_conv_block(input_layer, filters, data_format, training):
     conv2d_1 = conv2d_fixed_padding(input_layer=input_layer, filters=filters, kernel_size=1,
                                     data_format=data_format)
     batch_norm_1 = batch_norm(input_layer=conv2d_1, training=training, data_format=data_format)
-    leakyReLU_1 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_1)
+    leakyReLU_1 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_1)
 
     conv2d_2 = conv2d_fixed_padding(input_layer=leakyReLU_1, filters=2 * filters, kernel_size=3,
                                     data_format=data_format)
     batch_norm_2 = batch_norm(input_layer=conv2d_2, training=training, data_format=data_format)
-    leakyReLU_2 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_2)
+    leakyReLU_2 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_2)
 
     conv2d_3 = conv2d_fixed_padding(input_layer=leakyReLU_2, filters=filters, kernel_size=1,
                                     data_format=data_format)
     batch_norm_3 = batch_norm(conv2d_3, training=training, data_format=data_format)
-    leakyReLU_3 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_3)
+    leakyReLU_3 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_3)
 
     conv2d_4 = conv2d_fixed_padding(input_layer=leakyReLU_3, filters=2 * filters, kernel_size=3,
                                     data_format=data_format)
     batch_norm_4 = batch_norm(input_layer=conv2d_4, training=training, data_format=data_format)
-    leakyReLU_4 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_4)
+    leakyReLU_4 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_4)
 
     conv2d_5 = conv2d_fixed_padding(input_layer=leakyReLU_4, filters=filters, kernel_size=1,
                                     data_format=data_format)
     batch_norm_5 = batch_norm(input_layer=conv2d_5, training=training, data_format=data_format)
-    leakyReLU_5 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_5)
+    leakyReLU_5 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_5)
 
     route = leakyReLU_5
 
     conv2d_6 = conv2d_fixed_padding(input_layer=leakyReLU_5, filters=2 * filters, kernel_size=3,
                                     data_format=data_format)
     batch_norm_6 = batch_norm(input_layer=conv2d_6, training=training, data_format=data_format)
-    leakyReLU_6 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_6)
+    leakyReLU_6 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_6)
 
     return route, leakyReLU_6
 
@@ -265,8 +275,7 @@ def yolo_detection_layer(input_layer, n_classes, anchors, img_size, data_format)
 
     strides = (img_size[0] // grid_shape[0], img_size[1] // grid_shape[1])
 
-    box_centers, box_shapes, confidence, classes = \
-        tf.split(conv2d_1, [2, 2, 1, n_classes], axis=-1)
+    box_centers, box_shapes, confidence, classes = tf.split(conv2d_1, [2, 2, 1, n_classes], axis=-1)
 
     x = tf.range(grid_shape[0], dtype=tf.float32)
     y = tf.range(grid_shape[1], dtype=tf.float32)
@@ -319,7 +328,8 @@ def batch_norm(input_layer, training, data_format):
     modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
     """
     return tf.keras.layers.BatchNormalization(axis=1 if data_format == 'channels_first' else 3,
-                                              momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON,
+                                              momentum=Constants._BATCH_NORM_DECAY,
+                                              epsilon=Constants._BATCH_NORM_EPSILON,
                                               scale=True, training=training)(input_layer)
 
 
@@ -367,7 +377,7 @@ def conv2d_fixed_padding(input_layer, filters, kernel_size, data_format, strides
 def build_boxes(inputs):
     """
         Computes top left and bottom right points of the boxes.
-        from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
+        modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
     """
     center_x, center_y, width, height, confidence, classes = \
         tf.split(inputs, [1, 1, 1, 1, 1, -1], axis=-1)
@@ -378,10 +388,9 @@ def build_boxes(inputs):
     bottom_right_y = center_y + height / 2
 
     boxes = tf.concat([top_left_x, top_left_y,
-                       bottom_right_x, bottom_right_y,
-                       confidence, classes], axis=-1)
+                       bottom_right_x, bottom_right_y], axis=-1)
 
-    return boxes
+    return boxes, confidence, classes
 
 
 def non_max_suppression(inputs, n_classes, max_output_size, iou_threshold,
@@ -442,14 +451,14 @@ def getYoloModelLayers(model_size, n_classes, training, data_format):
     yolo_route_1, conv_1 = yolo_conv_block(input_layer=darknet_1, filters=512, training=training,
                                            data_format=data_format)
     detect_1 = yolo_detection_layer(input_layer=conv_1, n_classes=n_classes,
-                                    anchors=_ANCHORS[6:9],
+                                    anchors=Constants._ANCHORS[6:9],
                                     img_size=model_size,
                                     data_format=data_format)
     pad_1 = conv2d_fixed_padding(input_layer=yolo_route_1, filters=256, kernel_size=1,
                                  data_format=data_format)
     batch_norm_1 = batch_norm(input_layer=pad_1, training=training,
                               data_format=data_format)
-    leakyReLU_1 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_1)
+    leakyReLU_1 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_1)
     upsample_size = dn_route2.get_shape().as_list()
     upsample_1 = upsample_layer(input_layer=leakyReLU_1, out_shape=upsample_size,
                                 data_format=data_format)
@@ -461,14 +470,14 @@ def getYoloModelLayers(model_size, n_classes, training, data_format):
     yolo_route_2, conv_2 = yolo_conv_block(input_layer=concat_1, filters=256, training=training,
                                            data_format=data_format)
     detect_2 = yolo_detection_layer(input_layer=conv_2, n_classes=n_classes,
-                                    anchors=_ANCHORS[3:6],
+                                    anchors=Constants._ANCHORS[3:6],
                                     img_size=model_size,
                                     data_format=data_format)
     pad_2 = conv2d_fixed_padding(input_layer=yolo_route_2, filters=128, kernel_size=1,
                                  data_format=data_format)
     batch_norm_2 = batch_norm(input_layer=pad_2, training=training,
                               data_format=data_format)
-    leakyReLU_2 = tf.nn.leaky_relu(alpha=_LEAKY_RELU)(batch_norm_2)
+    leakyReLU_2 = tf.nn.leaky_relu(alpha=Constants._LEAKY_RELU)(batch_norm_2)
     upsample_size = dn_route1.get_shape().as_list()
     upsample_2 = upsample_layer(input_layer=leakyReLU_2, out_shape=upsample_size,
                                 data_format=data_format)
@@ -480,10 +489,34 @@ def getYoloModelLayers(model_size, n_classes, training, data_format):
         input_layer=concat_2, filters=128, training=training,
         data_format=data_format)
     detect_3 = yolo_detection_layer(input_layer=conv_3, n_classes=n_classes,
-                                    anchors=_ANCHORS[0:3],
+                                    anchors=Constants._ANCHORS[0:3],
                                     img_size=model_size,
                                     data_format=data_format)
 
     out = tf.concat([detect_1, detect_2, detect_3], axis=1)
 
     return input_layer, out
+
+
+def format_output_for_yolo_loss(y_pred):
+    box_centers, box_shapes, confidence, classes = tf.split(y_pred, [2, 2, 1, Constants.CLASSES], axis=-1)
+    return box_centers, box_shapes, confidence, classes
+
+
+def custom_yolo_cost(y_true, y_pred):
+    # break up input and pass to build_boxes
+    # boxes, confidence, classes = build_boxes(y_pred)
+
+    # pass output of build_boxes to non_max_suppression
+    # max_boxes = non_max_suppression(all_boxes)
+
+    # convert boxes to different format if needed
+    # output from NN: box_centers, box_shapes, confidence, classes
+    box_centers, box_shapes, confidence, classes = format_output_for_yolo_loss(y_pred=y_pred)
+
+    # pass boxes to yolo loss function
+    giou_loss, conf_loss, prob_loss = YoloLossFunctions.compute_loss(pred=boxes, conv=classes, )
+    # reformat losses if needed for TF format
+
+    # return losses
+    return giou_loss + conf_loss + prob_loss
