@@ -498,25 +498,23 @@ def getYoloModelLayers(model_size, n_classes, training, data_format):
     return input_layer, out
 
 
-def format_output_for_yolo_loss(y_pred):
-    box_centers, box_shapes, confidence, classes = tf.split(y_pred, [2, 2, 1, Constants.CLASSES], axis=-1)
+def format_output_for_yolo_loss(data):
+    box_centers, box_shapes, confidence, classes = tf.split(data, [2, 2, 1, Constants.CLASSES], axis=-1)
     return box_centers, box_shapes, confidence, classes
 
 
 def custom_yolo_cost(y_true, y_pred):
-    # break up input and pass to build_boxes
-    # boxes, confidence, classes = build_boxes(y_pred)
 
-    # pass output of build_boxes to non_max_suppression
-    # max_boxes = non_max_suppression(all_boxes)
-
-    # convert boxes to different format if needed
-    # output from NN: box_centers, box_shapes, confidence, classes
-    box_centers, box_shapes, confidence, classes = format_output_for_yolo_loss(y_pred=y_pred)
+    # format for passing to loss function
+    p_box_centers, p_box_shapes, p_confidence, p_classes = format_output_for_yolo_loss(data=y_pred)
+    t_box_centers, t_box_shapes, t_confidence, t_classes = format_output_for_yolo_loss(data=y_true)
 
     # pass boxes to yolo loss function
-    giou_loss, conf_loss, prob_loss = YoloLossFunctions.compute_loss(pred=boxes, conv=classes, )
+    box_center_loss, box_shape_loss, confidence_loss, class_loss = YoloLossFunctions.yolo_v3_loss_function(
+        p_box_centers, p_box_shapes, p_confidence, p_classes, t_box_centers, t_box_shapes, t_confidence, t_classes)
+
     # reformat losses if needed for TF format
+    loss = tf.concat([box_center_loss, box_shape_loss, confidence_loss, class_loss], axis=-1)
 
     # return losses
-    return giou_loss + conf_loss + prob_loss
+    return loss
