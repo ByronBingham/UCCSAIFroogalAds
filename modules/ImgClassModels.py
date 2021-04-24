@@ -515,8 +515,9 @@ def custom_yolo_cost(y_true, y_pred):
     box_centers, box_shapes, confidence, classes = format_output_for_yolo_loss(y_pred=y_pred)
 
     # pass boxes to yolo loss function
-    giou_loss, conf_loss, prob_loss = YoloLossFunctions.compute_loss(pred=boxes, conv=classes, )
+    box_loss, objectiveness_loss, prob_loss = YoloLossFunctions.compute_loss(pred=y_pred, label=y_true)
     # reformat losses if needed for TF format
 
     # return losses
-    return giou_loss + conf_loss + prob_loss
+    out = tf.concat([box_loss, objectiveness_loss, prob_loss], axis=-1)
+    return out

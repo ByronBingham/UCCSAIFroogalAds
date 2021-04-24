@@ -75,61 +75,80 @@ def bbox_giou(boxes1, boxes2):
     return giou
 
 
-def compute_loss(pred, conv, label, bboxes, i=0):
+def compute_loss(pred, label):  # bboxes,
     """
     No comments in original code. Commenting for myself to understand.
 
     :param pred: box predictions
     :param conv: one-hot prediction
     :param label: target label
-    :param bboxes: boinding boxes
-    :param i: used to choose the stride from STRIDES
+    :param bboxes: bounding boxes
     :return:
+
+    modified by Byron Bingham
     """
-    NUM_CLASS = len(Constants.CLASSES)
-    conv_shape = tf.shape(conv)
-    batch_size = conv_shape[0]
-    output_size = conv_shape[1]
-    input_size = STRIDES[i] * output_size
-    conv = tf.reshape(conv, (batch_size, output_size, output_size, 3, 5 + NUM_CLASS))
 
-    conv_raw_conf = conv[:, :, :, :, 4:5]  # class prediction confidence
-    conv_raw_prob = conv[:, :, :, :, 5:]  # one-hot class predictions
+    box_loss = None
+    objectiveness_loss = None
+    prob_loss = None
 
-    pred_xywh = pred[:, :, :, :, 0:4]  # predicted box dimensions and position
-    pred_conf = pred[:, :, :, :, 4:5]  # box confidence
+    for i in range(3):
 
-    label_xywh = label[:, :, :, :, 0:4]  # target box dimensions and position
-    respond_bbox = label[:, :, :, :, 4:5]  # ?
-    label_prob = label[:, :, :, :, 5:]  # target one-hot classes
+        NUM_CLASS = len(Constants.CLASSES)
+        pred_shape = tf.shape(pred)
+        batch_size = pred_shape[0]
+        output_size = pred_shape[1]
+        input_size = STRIDES[i] * output_size
+        pred = tf.reshape(pred, (batch_size, output_size, output_size, 3, 5 + NUM_CLASS))
 
-    giou = tf.expand_dims(bbox_giou(pred_xywh, label_xywh), axis=-1)
-    input_size = tf.cast(input_size, tf.float32)
+        objectivness_score = pred[:, :, :, :, 4:5]  # class prediction confidence
+        class_prob = pred[:, :, :, :, 5:]  # one-hot class predictions
+        pred_xywh = pred[:, :, :, :, 0:4]  # predicted box dimensions and position
 
-    bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
-    giou_loss = respond_bbox * bbox_loss_scale * (1 - giou)
+        label_xywh = label[:, :, :, :, 0:4]  # target box dimensions and position
+        label_objectiveness = label[:, :, :, :, 4:5]  # how far from center: 1.0 is center, 0.0 is edge of bbox
+        label_prob = label[:, :, :, :, 5:]  # target one-hot classes
 
-    iou = bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
-    # Find the value of IoU with the real box The largest prediction box
-    max_iou = tf.expand_dims(tf.reduce_max(iou, axis=-1), axis=-1)
+        giou = tf.expand_dims(bbox_giou(pred_xywh, label_xywh), axis=-1)
 
-    # If the largest iou is less than the threshold, it is considered that the prediction box contains no objects, then the background box
-    respond_bgd = (1.0 - respond_bbox) * tf.cast(max_iou < Constants.YOLO_IOU_LOSS_THRESH, tf.float32)
+        input_size = tf.cast(input_size, tf.float32)
 
-    conf_focal = tf.pow(respond_bbox - pred_conf, 2)
+        bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
+        box_loss = label_objectiveness * bbox_loss_scale * (1 - giou)
 
-    # Calculate the loss of confidence
-    # we hope that if the grid contains objects, then the network output prediction box has a confidence of 1 and 0 when there is no object.
-    conf_loss = conf_focal * (
-            respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
-            +
-            respond_bgd * tf.nn.sigmoid_cross_entropy_with_logits(labels=respond_bbox, logits=conv_raw_conf)
-    )
+        # iou = bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
+        # Find the value of IoU with the real box The largest prediction box
+        # max_iou = tf.expand_dims(tf.reduce_max(iou, axis=-1), axis=-1)
 
-    prob_loss = respond_bbox * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_prob, logits=conv_raw_prob)
+        # If the largest iou is less than the threshold, it is considered that the prediction box contains no objects, then the background box
+        # respond_bgd = (1.0 - label_objectiveness) * tf.cast(max_iou < Constants.YOLO_IOU_LOSS_THRESH, tf.float32)
 
-    giou_loss = tf.reduce_mean(tf.reduce_sum(giou_loss, axis=[1, 2, 3, 4]))  # loss from dimensions/positions of boxes
-    conf_loss = tf.reduce_mean(tf.reduce_sum(conf_loss, axis=[1, 2, 3, 4]))  # confidence loss
-    prob_loss = tf.reduce_mean(tf.reduce_sum(prob_loss, axis=[1, 2, 3, 4]))  # loss from one-hot class predictions
+        conf_focal = tf.pow(label_objectiveness - objectivness_score, 2)
 
-    return giou_loss, conf_loss, prob_loss
+        # Calculate the loss of confidence
+        # we hope that if the grid contains objects, then the network output prediction box has a confidence of 1 and 0 when there is no object.
+        objectiveness_loss = conf_focal * (
+                label_objectiveness * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_objectiveness,
+                                                                              logits=class_prob)
+            # +
+            # respond_bgd * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_objectiveness, logits=class_prob)
+        )
+
+        prob_loss = label_objectiveness * tf.nn.sigmoid_cross_entropy_with_logits(labels=label_prob, logits=class_prob)
+
+        tmp_box_loss = tf.reduce_mean(
+            tf.reduce_sum(box_loss, axis=[1, 2, 3, 4]))  # loss from dimensions/positions of boxes
+        tmp_objectiveness_loss = tf.reduce_mean(tf.reduce_sum(objectiveness_loss, axis=[1, 2, 3, 4]))  # confidence loss
+        tmp_prob_loss = tf.reduce_mean(
+            tf.reduce_sum(prob_loss, axis=[1, 2, 3, 4]))  # loss from one-hot class predictions
+
+        if box_loss is None:
+            box_loss = tmp_box_loss
+            objectiveness_loss = tmp_objectiveness_loss
+            prob_loss = tmp_prob_loss
+        else:
+            box_loss = tf.concat(box_loss, tmp_box_loss, axis=-2)
+            objectiveness_loss = tf.concat(objectiveness_loss, tmp_objectiveness_loss, axis=-2)
+            prob_loss = tf.concat(prob_loss, tmp_prob_loss, axis=-2)
+
+    return box_loss, objectiveness_loss, prob_loss
