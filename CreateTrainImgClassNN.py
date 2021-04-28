@@ -31,7 +31,8 @@ class CreateTrainImgClassNN:
         self.TF_Init()
 
         # create model
-        (input_layer, output_layer) = ImgClassModels.getYoloModelLayers()
+        (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants._MODEL_SIZE[0],
+                                                                        n_classes=Constants.CLASSES, training=True)
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
         model.compile(loss=ImgClassModels.custom_yolo_cost,
                       optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED), metrics=['accuracy'])

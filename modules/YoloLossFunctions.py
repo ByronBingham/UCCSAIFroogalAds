@@ -15,7 +15,7 @@ from tensorflow.keras.regularizers import l2
 from . import Constants
 
 STRIDES = np.array(Constants.YOLO_STRIDES)
-ANCHORS = (np.array(Constants._ANCHORS).T / STRIDES).T
+# ANCHORS = (np.array(Constants._ANCHORS).T / STRIDES).T
 
 
 def bbox_iou(boxes1, boxes2):
