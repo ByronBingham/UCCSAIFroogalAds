@@ -5,13 +5,12 @@ import random
 from modules import ImgClassModels
 from matplotlib import pyplot
 from modules import Constants
+import tensorflow_datasets as tfds
 
-
-def unpickle(file):
-    import pickle
-    with open(file, 'rb') as fo:
-        dict = pickle.load(fo, encoding='bytes')
-    return dict
+open_images_v4_train, open_images_v4_test = tfds.load('open_images_v4', shuffle_files=True,
+                                                      data_dir="f:/open_images_v4_dataset/",
+                                                      split=['train[:' + str(Constants.DATASET_PERCENTAGE) + '%]',
+                                                             'test[:' + str(Constants.DATASET_PERCENTAGE) + '%]'])
 
 
 class CreateTrainImgClassNN:
@@ -36,15 +35,17 @@ class CreateTrainImgClassNN:
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
         model.compile(loss=ImgClassModels.custom_yolo_cost,
                       optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED), metrics=['accuracy'])
-
+        model.summary()
         # load model checkpoint if exists
         # TODO: load darknet53/yolo weights
+        """
         try:
             if Constants.LOAD_WEIGHTS:
                 self.model.load_weights(Constants.CHECKPOINT_PATH)
         except Exception as e:
             print("Weights not loaded. Will create new weights")
             print(str(e))
+        """
 
         # start training
         i = 0
@@ -88,8 +89,13 @@ class CreateTrainImgClassNN:
             print(e)
 
     def init_training_data(self):
-        print()
-        # TODO: impliment
+        self.x_train = tf.image.resize(imapes=open_images_v4_train['image'], size=Constants._MODEL_SIZE)
+        self.y_train = tf.concat([open_images_v4_train['bobjects']['bbox'], open_images_v4_train['bobjects']['label']],
+                                 axis=-1)
+
+        self.x_test = tf.image.resize(imapes=open_images_v4_test['image'], size=Constants._MODEL_SIZE)
+        self.y_test = tf.concat([open_images_v4_test['bobjects']['bbox'], open_images_v4_test['bobjects']['label']],
+                                axis=-1)
 
     def evalStep(self):
         # trainData, targetData = self.createBatch()

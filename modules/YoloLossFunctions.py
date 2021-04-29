@@ -104,7 +104,7 @@ def compute_loss(pred, label):  # bboxes,
         pred_xywh = pred[:, :, :, :, 0:4]  # predicted box dimensions and position
 
         label_xywh = label[:, :, :, :, 0:4]  # target box dimensions and position
-        label_objectiveness = label[:, :, :, :, 4:5]  # how far from center: 1.0 is center, 0.0 is edge of bbox
+        label_objectiveness = label[:, :, :, :, 4:5]  # ?
         label_prob = label[:, :, :, :, 5:]  # target one-hot classes
 
         giou = tf.expand_dims(bbox_giou(pred_xywh, label_xywh), axis=-1)
@@ -112,7 +112,7 @@ def compute_loss(pred, label):  # bboxes,
         input_size = tf.cast(input_size, tf.float32)
 
         bbox_loss_scale = 2.0 - 1.0 * label_xywh[:, :, :, :, 2:3] * label_xywh[:, :, :, :, 3:4] / (input_size ** 2)
-        box_loss = label_objectiveness * bbox_loss_scale * (1 - giou)
+        # box_loss = label_objectiveness * bbox_loss_scale * (1 - giou)
 
         # iou = bbox_iou(pred_xywh[:, :, :, :, np.newaxis, :], bboxes[:, np.newaxis, np.newaxis, np.newaxis, :, :])
         # Find the value of IoU with the real box The largest prediction box
