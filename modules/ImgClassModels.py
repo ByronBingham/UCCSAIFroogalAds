@@ -230,6 +230,8 @@ def yolo_detection_layer(input_layer, n_classes, anchors, img_size):
         modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
         """
 
+    # TODO: make sure all the non-keras/non-layer stuff is accounted for
+
     n_anchors = len(anchors)
 
     conv2d_1 = tf.keras.layers.Conv2D(filters=n_anchors * (5 + n_classes),

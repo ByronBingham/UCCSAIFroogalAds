@@ -1,24 +1,21 @@
-# ================================================================
-#
-#   File name   : yolov3.py
-#   Author      : PyLessons
-#   Created date: 2020-06-04
-#   Website     : https://pylessons.com/
-#   GitHub      : https://github.com/pythonlessons/TensorFlow-2.x-YOLOv3
-#   Description : main yolov3 functions
-#
-# ================================================================
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, Input, LeakyReLU, ZeroPadding2D, BatchNormalization, MaxPool2D
-from tensorflow.keras.regularizers import l2
 from . import Constants
 
 STRIDES = np.array(Constants.YOLO_STRIDES)
+
+
 # ANCHORS = (np.array(Constants._ANCHORS).T / STRIDES).T
 
 
 def bbox_iou(boxes1, boxes2):
+    """
+    from https://github.com/pythonlessons/TensorFlow-2.x-YOLOv3
+    :param boxes1:
+    :param boxes2:
+    :return:
+    """
+
     boxes1_area = boxes1[..., 2] * boxes1[..., 3]
     boxes2_area = boxes2[..., 2] * boxes2[..., 3]
 
@@ -38,6 +35,12 @@ def bbox_iou(boxes1, boxes2):
 
 
 def bbox_giou(boxes1, boxes2):
+    """
+    from https://github.com/pythonlessons/TensorFlow-2.x-YOLOv3
+    :param boxes1:
+    :param boxes2:
+    :return:
+    """
     boxes1 = tf.concat([boxes1[..., :2] - boxes1[..., 2:] * 0.5,
                         boxes1[..., :2] + boxes1[..., 2:] * 0.5], axis=-1)
     boxes2 = tf.concat([boxes2[..., :2] - boxes2[..., 2:] * 0.5,
@@ -83,6 +86,7 @@ def compute_loss(pred, label):  # bboxes,
     :param label: target label
     :param bboxes: bounding boxes
     :return:
+    from https://github.com/pythonlessons/TensorFlow-2.x-YOLOv3
     modified by Byron Bingham
     """
 
@@ -150,3 +154,42 @@ def compute_loss(pred, label):  # bboxes,
             prob_loss = tf.concat(prob_loss, tmp_prob_loss, axis=-2)
 
     return box_loss, objectiveness_loss, prob_loss
+
+
+def compute_loss_custom(pred, label):
+    """
+    Computes the loss for the yolo v3 model
+
+    :param pred: output of the yolo model. Format:
+                [ ..., bbox xywh + objectiveness score + class probabilities ]
+    :param label: target data. Format:
+                [ ..., bbox xywh + class probabilities ]
+    :return: loss for training the yolo model. Format:
+                [ ..., bbox loss + objectiveness loss + class loss ]
+
+    author: Byron Bingham
+    """
+
+    # for each cell, find any centers that exist in the cell,
+    # and any classes that exist in the cell and their iou with that cell
+
+    # bbox loss
+    # only penalize for bbox loss if cell is "responsible"
+    # if a cell is responsible for predicting a target bbox
+    #   loss = scaling factor * [(xt-xp)^2, (yt-yp)^2, (sqrt(wt) - sqrt(wp))^2, (sqrt(ht) - sqrt(hp))^2]
+    # else
+    #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
+
+    # objectiveness loss
+    # only penalize for obj. loss if cell is "responsible"
+    # if cell is responsible for obj.
+    #   loss = (ct-cp)^2
+    # else
+    #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
+
+    # classification loss
+    # penalize class loss if cell "contains" any part of an object
+    # if there is an object(s) in the cell
+    #   loss = (target - predicted)^2
+    # else
+    #   loss = 0.0 (don't want to change anything if there is nothing in the cell to detect/classify)
