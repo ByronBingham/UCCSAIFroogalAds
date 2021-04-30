@@ -1,3 +1,5 @@
+import numpy as np
+
 # FroogalAds contants
 VERSION = 0.2
 
@@ -31,4 +33,12 @@ _MODEL_SIZE = (416, 416)
 TRAIN_DARKNET53 = False
 YOLO_IOU_LOSS_THRESH = 0.5
 
-ANCHORS_NORM =
+ANCHORS_NORM = np.asarray([[(_ANCHORS[0][0] / _MODEL_SIZE[0], _ANCHORS[0][1] / _MODEL_SIZE[0]),
+                           (_ANCHORS[1][0] / _MODEL_SIZE[0], _ANCHORS[1][1] / _MODEL_SIZE[0]),
+                           (_ANCHORS[2][0] / _MODEL_SIZE[0], _ANCHORS[2][1] / _MODEL_SIZE[0])],
+                           [(_ANCHORS[3][0] / _MODEL_SIZE[0], _ANCHORS[3][1] / _MODEL_SIZE[0]),
+                            (_ANCHORS[4][0] / _MODEL_SIZE[0], _ANCHORS[4][1] / _MODEL_SIZE[0]),
+                            (_ANCHORS[5][0] / _MODEL_SIZE[0], _ANCHORS[5][1] / _MODEL_SIZE[0])],
+                           [(_ANCHORS[6][0] / _MODEL_SIZE[0], _ANCHORS[6][1] / _MODEL_SIZE[0]),
+                            (_ANCHORS[7][0] / _MODEL_SIZE[0], _ANCHORS[7][1] / _MODEL_SIZE[0]),
+                            (_ANCHORS[8][0] / _MODEL_SIZE[0], _ANCHORS[8][1] / _MODEL_SIZE[0])]])
