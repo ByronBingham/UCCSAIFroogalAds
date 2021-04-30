@@ -163,33 +163,140 @@ def compute_loss_custom(pred, label):
     :param pred: output of the yolo model. Format:
                 [ ..., bbox xywh + objectiveness score + class probabilities ]
     :param label: target data. Format:
-                [ ..., bbox xywh + class probabilities ]
+                [ batchs, objects, bbox xywh + class probabilities ]
+                NOTE: class probabilities should be one-hot encoded
     :return: loss for training the yolo model. Format:
                 [ ..., bbox loss + objectiveness loss + class loss ]
 
     author: Byron Bingham
     """
 
-    # for each cell, find any centers that exist in the cell,
-    # and any classes that exist in the cell and their iou with that cell
+    # calculate the loss separately for each (of 3) detection layer (small, medium, large objects)
+    previous_stride_cells = 0
+    for s in range(len(Constants.YOLO_STRIDES)):
+        cells_per_axis = (Constants._MODEL_SIZE[0] / Constants.YOLO_STRIDES[s])
+        next_stride = previous_stride_cells + np.square(cells_per_axis)
+        pred_stride = pred[:, previous_stride_cells:next_stride, ...]  # predictions for the current detection layer
+        previous_stride_cells = next_stride
 
-    # bbox loss
-    # only penalize for bbox loss if cell is "responsible"
-    # if a cell is responsible for predicting a target bbox
-    #   loss = scaling factor * [(xt-xp)^2, (yt-yp)^2, (sqrt(wt) - sqrt(wp))^2, (sqrt(ht) - sqrt(hp))^2]
-    # else
-    #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
+        # for each cell, find any centers that exist in the cell,
+        # and any classes that exist in the cell and their iou with that cell
+        responsibility_mask = mask_responsible_cells(pred=pred_stride, label=label, cells_per_axis=cells_per_axis)
+        object_mask = mask_cells_objects(pred=pred_stride, label=label, cells_per_axis=cells_per_axis)
 
-    # objectiveness loss
-    # only penalize for obj. loss if cell is "responsible"
-    # if cell is responsible for obj.
-    #   loss = (ct-cp)^2
-    # else
-    #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
+        # bbox loss
+        # only penalize for bbox loss if cell is "responsible"
+        # if a cell is responsible for predicting a target bbox
+        #   loss = scaling factor * [(xt-xp)^2, (yt-yp)^2, (sqrt(wt) - sqrt(wp))^2, (sqrt(ht) - sqrt(hp))^2]
+        # else
+        #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
 
-    # classification loss
-    # penalize class loss if cell "contains" any part of an object
-    # if there is an object(s) in the cell
-    #   loss = (target - predicted)^2
-    # else
-    #   loss = 0.0 (don't want to change anything if there is nothing in the cell to detect/classify)
+        bbox_loss = np.zeros(shape=[pred_stride.shape[0], pred_stride.shape[1], 3, 4])
+
+        for b in range(len(pred_stride.shape[0])):
+            for cell in range(len(pred_stride.shape[1])):
+
+                if responsibility_mask[b][cell] is 1.0:
+
+                    for anchor in range(3):
+
+
+        # objectiveness loss
+        # only penalize for obj. loss if cell is "responsible"
+        # if cell is responsible for obj.
+        #   loss = (ct-cp)^2
+        # else
+        #   loss = 0.0 (don't want to change anything if cell is not responsible for producing a bbox)
+
+        # classification loss
+        # penalize class loss if cell "contains" any part of an object
+        # if there is an object(s) in the cell
+        #   loss = (target - predicted)^2
+        # else
+        #   loss = 0.0 (don't want to change anything if there is nothing in the cell to detect/classify)
+
+    # concat losses from 3 strides together
+
+
+def mask_responsible_cells(pred, label, cells_per_axis):
+    model_dimension_size = Constants._MODEL_SIZE[0]
+    mask_responsible = np.ones(shape=[len(pred.shape[0]), len(pred.shape[1])], dtype=tf.float32)
+    mask_responsible_for = np.zeros(shape=[len(pred.shape[0]), len(pred.shape[1])], dtype=tf.int32)
+
+    for b in range(len(pred.shape[0])):  # for each batch
+        for cell in range(len(pred.shape[1])):  # for each cell
+
+            for obj in range(len(label.shape[-2])):
+                stride_width = tf.cast(cells_per_axis, dtype=tf.float32) / tf.cast(model_dimension_size,
+                                                                                   dtype=tf.float32)
+                x_min = stride_width * (cell % cells_per_axis)
+                x_max = x_min + stride_width
+                y_min = stride_width * (cell // cells_per_axis)
+                y_max = y_min + stride_width
+
+                label_x = label[b][obj][0]
+                label_y = label[b][obj][1]
+
+                # if the object's bbox center is within the cell, the cell is responsible
+                if label_x >= x_min and label_x <= x_max and label_y >= y_min and label_y <= y_max:
+                    mask_responsible[b][cell] = 1.0
+                    mask_responsible_for[b][cell] = obj
+                else:
+                    mask_responsible[b][cell] = 0.0
+
+    return mask_responsible, mask_responsible_for
+
+
+def mask_cells_objects(pred, label, cells_per_axis):
+    model_dimension_size = Constants._MODEL_SIZE[0]
+    cell_size = tf.cast(cells_per_axis, dtype=tf.float32) / tf.cast(model_dimension_size,
+                                                                    dtype=tf.float32)
+
+    obj_prob = np.zeros(shape=[len(pred.shape[0]), len(pred.shape[1]), Constants.CLASSES])
+
+    for b in range(len(pred.shape[0])):  # for each batch
+        for cell in range(len(pred.shape[1])):  # for each cell
+
+            for obj in range(len(label.shape[-2])):
+
+                x_min = cell_size * (cell % cells_per_axis)
+                x_max = x_min + cell_size
+                y_min = cell_size * (cell // cells_per_axis)
+                y_max = y_min + cell_size
+
+                label_x = label[b][obj][0]
+                label_y = label[b][obj][1]
+                label_w = label[b][obj][2]
+                label_h = label[b][obj][3]
+
+                label_x_min = label_x - label_w / 2
+                label_x_max = label_x_min + label_w
+                label_y_min = label_y - label_h / 2
+                label_y_max = label_y_min + label_h
+
+                if x_max < label_x_min:  # cell to the left of obj
+                    continue
+                if x_min > label_x_max:  # cell to the right of obj
+                    continue
+                if y_max < label_y_min:  # cell below obj
+                    continue
+                if y_min > label_y_max:  # cell above obj
+                    continue
+
+                # cell is not outside obj (cell and obj overlap)
+                # calculate overlap
+
+                x_overlap = min(x_max, label_x_max) - max(x_min, label_x_min)
+                y_overlap = min(y_max, label_y_max) - max(y_min, label_y_min)
+
+                overlap_area = x_overlap * y_overlap
+                cell_area = np.sqaure(cell_size)
+
+                overlap_ratio = overlap_area / cell_area
+
+                if overlap_ratio > 1.0:
+                    overlap_ratio = 1.0
+
+                obj_prob[b][cell] = np.clip(a=(obj_prob[b][cell] + overlap_ratio * label[b][obj]), a_max=1.0)
+
+    return obj_prob
