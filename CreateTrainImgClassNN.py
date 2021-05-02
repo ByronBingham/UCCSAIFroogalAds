@@ -7,10 +7,14 @@ from matplotlib import pyplot
 from modules import Constants
 import tensorflow_datasets as tfds
 
-open_images_v4_train, open_images_v4_test = tfds.load('open_images_v4', shuffle_files=True,
-                                                      data_dir="f:/open_images_v4_dataset/",
-                                                      split=['train[:' + str(Constants.DATASET_PERCENTAGE) + '%]',
-                                                             'test[:' + str(Constants.DATASET_PERCENTAGE) + '%]'])
+open_images_v4_train = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
+                                 split='train[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
+
+open_images_v4_test = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
+                                split='test[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
+
+
+# test = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/", split=['train[:1%]', 'test[:1%'])
 
 
 class CreateTrainImgClassNN:
@@ -26,6 +30,9 @@ class CreateTrainImgClassNN:
         self.y_train = None
         self.y_test = None
 
+        self.train_start = 0
+        self.test_start = 0
+
     def main(self):
         self.TF_Init()
 
@@ -34,8 +41,8 @@ class CreateTrainImgClassNN:
                                                                         n_classes=Constants.CLASSES, training=True)
         model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
         model.compile(loss=ImgClassModels.custom_yolo_cost,
-                      optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED), metrics=['accuracy'])
-        model.summary()
+                      optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
+                      metrics=['accuracy']) == model.summary()
         # load model checkpoint if exists
         # TODO: load darknet53/yolo weights
         """
@@ -88,14 +95,45 @@ class CreateTrainImgClassNN:
         except Exception as e:
             print(e)
 
-    def init_training_data(self):
-        self.x_train = tf.image.resize(imapes=open_images_v4_train['image'], size=Constants._MODEL_SIZE)
-        self.y_train = tf.concat([open_images_v4_train['bobjects']['bbox'], open_images_v4_train['bobjects']['label']],
-                                 axis=-1)
+    def get_batch(self, training):
+        print("Creating batch...")
+        if training:
+            ds = open_images_v4_train.enumerate(start=self.train_start)
+        else:
+            ds = open_images_v4_test.enumerate(start=self.test_start)
 
-        self.x_test = tf.image.resize(imapes=open_images_v4_test['image'], size=Constants._MODEL_SIZE)
-        self.y_test = tf.concat([open_images_v4_test['bobjects']['bbox'], open_images_v4_test['bobjects']['label']],
-                                axis=-1)
+        x_batch = []
+        y_batch = []
+
+        elements_in_batch = 0
+        for element in ds:
+            if training:
+                self.train_start += 1
+            else:
+                self.test_start += 1
+
+            image = element[1]["image"]
+            bbox = element[1]["bobjects"]["bbox"]
+            label = element[1]["bobjects"]["label"]
+            # TODO: change coordinates to xywh format
+            x = image
+            labels = []
+            for l in label:
+                labels.append(tf.one_hot(indices=l, depth=Constants.CLASSES, on_value=1.0, off_value=0.0))
+            labels = np.asarray(labels)
+            y = tf.concat([bbox, labels], axis=-1)
+
+            x_batch.append(x)
+            y_batch.append(y)
+            elements_in_batch += 1
+            if elements_in_batch >= Constants.BATCH_SIZE:
+                break
+
+        x_batch = np.asarray(x_batch) / 255
+        y_batch = np.asarray(y_batch)
+
+        print("Batch finished.")
+        return x_batch, y_batch
 
     def evalStep(self):
         # trainData, targetData = self.createBatch()
@@ -111,7 +149,9 @@ class CreateTrainImgClassNN:
         # trainData, targetData = self.createBatch()
         time1 = dt.datetime.now()
 
-        epoch = self.model.fit(x=self.x_train, y=self.y_train, verbose=2, batch_size=Constants.BATCH_SIZE,
+        x_batch, y_batch = self.get_batch(training=True)
+
+        epoch = self.model.fit(x=x_batch, y=y_batch, verbose=2, batch_size=Constants.BATCH_SIZE,
                                epochs=1)
         self.epochs = self.epochs + 1
         self.train_acc_history.append((self.epochs, epoch.history['accuracy'][0]))
@@ -139,6 +179,7 @@ class CreateTrainImgClassNN:
                      "D Aug = " + str(Constants.DATA_AUGMENTATION))
 
         pyplot.show()
+
 
 
 if __name__ == '__main__':

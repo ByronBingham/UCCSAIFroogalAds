@@ -202,7 +202,7 @@ def compute_loss_custom(pred, label):
         for b in range(len(pred_stride.shape[0])):
             for cell in range(len(pred_stride.shape[1])):
 
-                if mask_responsible[b][cell] is 1.0:
+                if mask_responsible[b][cell] == 1.0:
 
                     iou = np.zeros(3)
 

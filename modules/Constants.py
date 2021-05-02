@@ -5,7 +5,7 @@ VERSION = 0.2
 
 # Training constants
 # data should use channels last format
-DATASET_PERCENTAGE = 5
+DATASET_PERCENTAGE = 1
 TRAINING_STEPS = 100
 CHECKPOINT_PATH = "./ImgClassNN_" + str(VERSION)
 BATCH_SIZE = 32
