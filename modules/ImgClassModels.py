@@ -1,5 +1,7 @@
 import tensorflow as tf
 import numpy as np
+from tensorflow.python.ops.image_ops_impl import ResizeMethod
+
 from . import YoloLossFunctions
 from . import Constants
 
@@ -230,35 +232,17 @@ def yolo_detection_layer(input_layer, n_classes, anchors, img_size):
         modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
         """
 
-    # TODO: make sure all the non-keras/non-layer stuff is accounted for
-
     n_anchors = len(anchors)
 
     conv2d_1 = tf.keras.layers.Conv2D(filters=n_anchors * (5 + n_classes),
                                       kernel_size=1, strides=1, use_bias=True)(input_layer)
 
-    shape = input_layer.get_shape().as_list()
+    shape = input_layer.get_shape()
     grid_shape = shape[1:3]
-    conv2d_1 = tf.reshape(conv2d_1, [-1, n_anchors * grid_shape[0] * grid_shape[1],
+    conv2d_1 = tf.reshape(conv2d_1, [-1, grid_shape[0] * grid_shape[1], n_anchors,
                                      5 + n_classes])
 
-    strides = (img_size[0] // grid_shape[0], img_size[1] // grid_shape[1])
-
     box_centers, box_shapes, confidence, classes = tf.split(conv2d_1, [2, 2, 1, n_classes], axis=-1)
-
-    x = tf.range(grid_shape[0], dtype=tf.float32)
-    y = tf.range(grid_shape[1], dtype=tf.float32)
-    x_offset, y_offset = tf.meshgrid(x, y)
-    x_offset = tf.reshape(x_offset, (-1, 1))
-    y_offset = tf.reshape(y_offset, (-1, 1))
-    x_y_offset = tf.concat([x_offset, y_offset], axis=-1)
-    x_y_offset = tf.tile(x_y_offset, [1, n_anchors])
-    x_y_offset = tf.reshape(x_y_offset, [1, -1, 2])
-    box_centers = tf.nn.sigmoid(box_centers)
-    box_centers = (box_centers + x_y_offset) * strides
-
-    anchors = tf.tile(anchors, [grid_shape[0] * grid_shape[1], 1])
-    box_shapes = tf.exp(box_shapes) * tf.cast(x=anchors, dtype=tf.float32)
 
     confidence = tf.nn.sigmoid(confidence)
 
@@ -279,7 +263,7 @@ def upsample_layer(input_layer, out_shape):
     new_height = out_shape[2]
     new_width = out_shape[1]
 
-    out = tf.compat.v1.image.resize_nearest_neighbor(input_layer, (new_height, new_width))
+    out = tf.image.resize(images=input_layer, size=(new_height, new_width), method=ResizeMethod.NEAREST_NEIGHBOR)
 
     return out
 
@@ -326,25 +310,6 @@ def conv2d_fixed_padding(input_layer, filters, kernel_size, strides=1):
 
     return tf.keras.layers.Conv2D(filters=filters, kernel_size=kernel_size,
                                   strides=strides, padding=('SAME' if strides == 1 else 'VALID'), use_bias=False)(out)
-
-
-def build_boxes(inputs):
-    """
-        Computes top left and bottom right points of the boxes.
-        modified from https://www.kaggle.com/aruchomu/yolo-v3-object-detection-in-tensorflow
-    """
-    center_x, center_y, width, height, confidence, classes = \
-        tf.split(inputs, [1, 1, 1, 1, 1, -1], axis=-1)
-
-    top_left_x = center_x - width / 2
-    top_left_y = center_y - height / 2
-    bottom_right_x = center_x + width / 2
-    bottom_right_y = center_y + height / 2
-
-    boxes = tf.concat([top_left_x, top_left_y,
-                       bottom_right_x, bottom_right_y], axis=-1)
-
-    return boxes, confidence, classes
 
 
 def non_max_suppression(inputs, n_classes, max_output_size, iou_threshold,
@@ -400,7 +365,8 @@ def getYoloModelLayers(model_size, n_classes, training):
     """
     input_layer = tf.keras.layers.Input(shape=(model_size, model_size, 3), dtype=tf.float32)
 
-    (dn_route1, dn_route2, darknet_1) = darknet_53_block(input_layer=input_layer, training=training)
+    dn_route1, dn_route2, darknet_1 = darknet_53_block(input_layer=input_layer, training=training)
+
     yolo_route_1, conv_1 = yolo_conv_block(input_layer=darknet_1, filters=512, training=training)
     detect_1 = yolo_detection_layer(input_layer=conv_1, n_classes=n_classes,
                                     anchors=Constants._ANCHORS[6:9],
@@ -408,7 +374,7 @@ def getYoloModelLayers(model_size, n_classes, training):
     pad_1 = conv2d_fixed_padding(input_layer=yolo_route_1, filters=256, kernel_size=1)
     batch_norm_1 = batch_norm(input_layer=pad_1, training=training)
     leakyReLU_1 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_1)
-    upsample_size = dn_route2.get_shape().as_list()
+    upsample_size = dn_route2.get_shape()
     upsample_1 = upsample_layer(input_layer=leakyReLU_1, out_shape=upsample_size)
     axis = 3
     concat_1 = tf.concat([upsample_1, dn_route2], axis=axis)
@@ -421,7 +387,7 @@ def getYoloModelLayers(model_size, n_classes, training):
     pad_2 = conv2d_fixed_padding(input_layer=yolo_route_2, filters=128, kernel_size=1)
     batch_norm_2 = batch_norm(input_layer=pad_2, training=training)
     leakyReLU_2 = tf.keras.layers.LeakyReLU(alpha=Constants._LEAKY_RELU)(batch_norm_2)
-    upsample_size = dn_route1.get_shape().as_list()
+    upsample_size = dn_route1.get_shape()
     upsample_2 = upsample_layer(input_layer=leakyReLU_2, out_shape=upsample_size)
     concat_2 = tf.concat([upsample_2, dn_route1], axis=axis)
 
@@ -435,17 +401,3 @@ def getYoloModelLayers(model_size, n_classes, training):
     out = tf.concat([detect_1, detect_2, detect_3], axis=1)
 
     return input_layer, out
-
-
-def format_output_for_yolo_loss(data):
-    box_centers, box_shapes, confidence, classes = tf.split(data, [2, 2, 1, Constants.CLASSES], axis=-1)
-    return box_centers, box_shapes, confidence, classes
-
-
-def custom_yolo_cost(y_true, y_pred):
-    # pass boxes to yolo loss function
-    box_loss, objectiveness_loss, prob_loss = YoloLossFunctions.compute_loss(pred=y_pred, label=y_true)
-
-    # return losses
-    out = tf.concat([box_loss, objectiveness_loss, prob_loss], axis=-1)
-    return out

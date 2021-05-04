@@ -6,6 +6,7 @@ from modules import ImgClassModels
 from matplotlib import pyplot
 from modules import Constants
 import tensorflow_datasets as tfds
+from modules import YoloLossFunctions as yloss
 
 open_images_v4_train = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
                                  split='train[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
@@ -39,10 +40,12 @@ class CreateTrainImgClassNN:
         # create model
         (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants._MODEL_SIZE[0],
                                                                         n_classes=Constants.CLASSES, training=True)
-        model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
-        model.compile(loss=ImgClassModels.custom_yolo_cost,
-                      optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
-                      metrics=['accuracy']) == model.summary()
+        self.model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
+        # self.model.compile(loss=ImgClassModels.custom_yolo_cost,
+        #                   optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
+        #                   metrics=['accuracy']) ==
+        self.model.summary()
+
         # load model checkpoint if exists
         # TODO: load darknet53/yolo weights
         """
@@ -57,13 +60,15 @@ class CreateTrainImgClassNN:
         # start training
         i = 0
         for i in range(0, Constants.TRAINING_STEPS):  # i < imagesToTrain:
+            """
             try:
                 self.trainStep()
             except Exception as e:
                 print("Training step failed. Skipping step")
                 print(str(e) + "\n")
                 continue
-
+            """
+            self.trainStep()
             print("Training step " + str(i) + " finished\n")
 
             if i % Constants.EVAL_FREQUENCY == Constants.EVAL_FREQUENCY - 1:
@@ -112,16 +117,21 @@ class CreateTrainImgClassNN:
             else:
                 self.test_start += 1
 
-            image = element[1]["image"]
-            bbox = element[1]["bobjects"]["bbox"]
+            image = np.asarray(tf.cast(element[1]["image"], dtype=tf.float32))
+            bbox = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32))
             label = element[1]["bobjects"]["label"]
             # TODO: change coordinates to xywh format
-            x = image
+            x = tf.image.resize(images=image, size=Constants._MODEL_SIZE)
             labels = []
             for l in label:
-                labels.append(tf.one_hot(indices=l, depth=Constants.CLASSES, on_value=1.0, off_value=0.0))
+                labels.append(
+                    np.asarray(tf.one_hot(indices=l, depth=Constants.CLASSES, on_value=1.0, off_value=0.0)).astype(
+                        np.float32))
             labels = np.asarray(labels)
             y = tf.concat([bbox, labels], axis=-1)
+
+            x = np.asarray(x)
+            y = np.asarray(y)
 
             x_batch.append(x)
             y_batch.append(y)
@@ -129,7 +139,7 @@ class CreateTrainImgClassNN:
             if elements_in_batch >= Constants.BATCH_SIZE:
                 break
 
-        x_batch = np.asarray(x_batch) / 255
+        x_batch = np.asarray(x_batch) / 255.0
         y_batch = np.asarray(y_batch)
 
         print("Batch finished.")
@@ -150,11 +160,22 @@ class CreateTrainImgClassNN:
         time1 = dt.datetime.now()
 
         x_batch, y_batch = self.get_batch(training=True)
+        optimizer = tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED)
 
-        epoch = self.model.fit(x=x_batch, y=y_batch, verbose=2, batch_size=Constants.BATCH_SIZE,
-                               epochs=1)
-        self.epochs = self.epochs + 1
-        self.train_acc_history.append((self.epochs, epoch.history['accuracy'][0]))
+        with tf.GradientTape() as tape:
+            pred = self.model(x_batch)
+
+            loss = yloss.compute_loss_custom(pred=pred, label=y_batch)
+
+            gradients = tape.gradient(loss, self.model.trainable_variables)
+
+            optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
+            avg_loss = np.average(loss)
+            accuracy = 1.0 - avg_loss
+            print("Loss: " + str(avg_loss) + "    Accuracy: " + str(accuracy))
+
+        # self.train_acc_history.append((self.epochs, epoch.history['accuracy'][0]))
 
         print("Time elapsed training: " + str(dt.datetime.now() - time1))
 
@@ -179,7 +200,6 @@ class CreateTrainImgClassNN:
                      "D Aug = " + str(Constants.DATA_AUGMENTATION))
 
         pyplot.show()
-
 
 
 if __name__ == '__main__':
