@@ -216,7 +216,7 @@ def yolo_conv_block(input_layer, filters, training):
 
 
 def yolo_detection_layer(input_layer, n_classes, anchors, img_size):
-    """Creates Yolo final detection layer.
+    """Creates Yolov3.py final detection layer.
 
         Detects boxes with respect to anchors.
 

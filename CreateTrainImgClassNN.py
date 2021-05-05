@@ -7,7 +7,11 @@ from matplotlib import pyplot
 from modules import Constants
 import tensorflow_datasets as tfds
 from modules import YoloLossFunctions as yloss
+from modules import Yolov3
+from modules import Dataset
+from modules import YoloLossFunctions
 
+"""
 open_images_v4_train = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
                                  split='train[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
 
@@ -16,6 +20,7 @@ open_images_v4_test = tfds.load("open_images_v4", shuffle_files=True, data_dir="
 
 
 # test = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/", split=['train[:1%]', 'test[:1%'])
+"""
 
 
 class CreateTrainImgClassNN:
@@ -26,21 +31,17 @@ class CreateTrainImgClassNN:
         self.validation_acc_history = [(0.0, 0.0)]
         self.epochs = 0
 
-        self.x_train = None
-        self.x_test = None
-        self.y_train = None
-        self.y_test = None
-
-        self.train_start = 0
-        self.test_start = 0
+        self.train_data = Dataset.YoloV3Dataset('train')
+        self.test_data = Dataset.YoloV3Dataset('test')
 
     def main(self):
         self.TF_Init()
 
         # create model
-        (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants._MODEL_SIZE[0],
-                                                                        n_classes=Constants.CLASSES, training=True)
-        self.model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
+        # (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants._MODEL_SIZE[0],
+        #                                                                 n_classes=Constants.CLASSES, training=True)
+        self.model = Yolov3.Create_Yolov3(input_size=Constants._MODEL_SIZE[0], channels=3, training=True,
+                                          CLASSES=Constants.CLASSES)
         # self.model.compile(loss=ImgClassModels.custom_yolo_cost,
         #                   optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
         #                   metrics=['accuracy']) ==
@@ -48,26 +49,18 @@ class CreateTrainImgClassNN:
 
         # load model checkpoint if exists
         # TODO: load darknet53/yolo weights
-        """
+
         try:
             if Constants.LOAD_WEIGHTS:
                 self.model.load_weights(Constants.CHECKPOINT_PATH)
+                print("Weights loaded")
         except Exception as e:
             print("Weights not loaded. Will create new weights")
             print(str(e))
-        """
 
         # start training
         i = 0
         for i in range(0, Constants.TRAINING_STEPS):  # i < imagesToTrain:
-            """
-            try:
-                self.trainStep()
-            except Exception as e:
-                print("Training step failed. Skipping step")
-                print(str(e) + "\n")
-                continue
-            """
             self.trainStep()
             print("Training step " + str(i) + " finished\n")
 
@@ -100,6 +93,7 @@ class CreateTrainImgClassNN:
         except Exception as e:
             print(e)
 
+    """
     def get_batch(self, training):
         print("Creating batch...")
         if training:
@@ -144,42 +138,104 @@ class CreateTrainImgClassNN:
 
         print("Batch finished.")
         return x_batch, y_batch
+    """
 
     def evalStep(self):
-        # trainData, targetData = self.createBatch()
-        trainData = self.x_test
-        targetData = self.y_test
-        with tf.device('/GPU:0'):
-            evalHistory = self.model.evaluate(x=trainData, y=targetData, verbose=2, batch_size=Constants.BATCH_SIZE)
+        accuracy = 0.0
 
-        self.validation_acc_history.append((self.epochs, evalHistory[1]))
+        batches = 0
+        for batch in self.test_data:
+            if batches > Constants.EVAL_BATCHES - 1:
+                break
+
+            x_batch, y_batch = batch
+
+            model_output = self.model(x_batch, training=False)
+
+            accuracy += self.eval_accuracy(model_output=model_output, label=y_batch)
+
+        accuracy = accuracy / Constants.EVAL_BATCHES  # average accuracy over all batches
+
+        print("Evaluation finished. Accuracy: " + str(accuracy))
+
+        self.validation_acc_history.append((self.epochs, accuracy))
+
+    def eval_accuracy(self, model_output, label):
+        pred = model_output[1]
+
+        tp = YoloLossFunctions.get_TP(pred=pred, label=label)
+        fp = YoloLossFunctions.get_FP(pred=pred, label=label)
+        fn = YoloLossFunctions.get_FN(pred=pred, label=label)
+
+        prec = tp / (tp + fp)
+        rec = tp / (tp + fn)
+
+        accuracy = 2 * (prec * rec) / (prec + rec)
+        return accuracy
 
     def trainStep(self):
 
-        # trainData, targetData = self.createBatch()
         time1 = dt.datetime.now()
+        for epoch in range(Constants.EPOCHS_PER_TRAINING_STEP):
 
-        x_batch, y_batch = self.get_batch(training=True)
-        optimizer = tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED)
+            batches = 0
+            for batch in self.train_data:
+                if batches > Constants.EPOCH_SIZE - 1:
+                    break
 
-        with tf.GradientTape() as tape:
-            pred = self.model(x_batch)
+                giou_loss = conf_loss = prob_loss = 0
+                model_out = None
+                total_loss = None
 
-            loss = yloss.compute_loss_custom(pred=pred, label=y_batch)
+                # batch = tf.where(tf.math.is_nan(batch), tf.zeros_like(batch), batch)
+                x_batch, y_batch = batch
 
-            gradients = tape.gradient(loss, self.model.trainable_variables)
+                optimizer = tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED,
+                                                     epsilon=Constants.ADAM_EPSILON)
 
-            optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+                with tf.GradientTape() as tape:
+                    tape.watch(self.model.trainable_variables)
+                    model_out = self.model(x_batch, training=True)
 
-            avg_loss = np.average(loss)
-            accuracy = 1.0 - avg_loss
-            print("Loss: " + str(avg_loss) + "    Accuracy: " + str(accuracy))
+                    grid = 3
+                    for i in range(grid):
+                        conv, pred = model_out[i * 2], model_out[i * 2 + 1]
+                        giou_loss_tmp, conf_loss_tmp, prob_loss_tmp = Yolov3.compute_loss(pred, conv, *y_batch[i],
+                                                                                          i)
+                        giou_loss += giou_loss_tmp
+                        conf_loss += conf_loss_tmp
+                        prob_loss += prob_loss_tmp
 
-        # self.train_acc_history.append((self.epochs, epoch.history['accuracy'][0]))
+                    total_loss = giou_loss + conf_loss + prob_loss
+
+                    if tf.math.is_nan(float(total_loss)):
+                        print("NaN error. Resetting model weights to last checkpoint")
+                        try:
+                            self.model.load_weights(Constants.CHECKPOINT_PATH)
+                            print("Weights loaded")
+                            continue
+                        except Exception as e:
+                            print("Weights not loaded. Aborting training")
+                            exit()
+                    else:
+                        gradients = tape.gradient(total_loss, self.model.trainable_variables)
+                        gradients = [tf.clip_by_norm(g, Constants.GRAD_NORM) for g in gradients]
+                        optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+
+                    print("Batch #" + str(batches) + "    Loss: " + str(float(total_loss)))
+
+                batches += 1
+
+                if (batches % Constants.SAVE_EVERY_N_BATCHES) >= Constants.SAVE_EVERY_N_BATCHES - 1:
+                    print("Saving weights...")
+                    self.model.save_weights(Constants.CHECKPOINT_PATH)
+
+            print("Epoch " + str(epoch) + " finished. Evaluating model")
+            # self.evalStep()
+
+            self.epochs += 1
 
         print("Time elapsed training: " + str(dt.datetime.now() - time1))
-
-        self.model.save_weights(Constants.CHECKPOINT_PATH)
         print("Done with training step")
 
     def printResults(self):
