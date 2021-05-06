@@ -223,11 +223,26 @@ class CreateTrainImgClassNN:
                     tape.watch(self.model.trainable_variables)
                     model_out = self.model(x_batch, training=True)
 
-                    grid = 3
-                    for i in range(grid):
+                    losses = []
+                    for i in range(3):  # for each stride/grid size
                         conv, pred = model_out[i * 2], model_out[i * 2 + 1]
                         giou_loss_tmp, conf_loss_tmp, prob_loss_tmp = Yolov3.compute_loss(pred, conv, *y_batch[i],
                                                                                           i)
+
+                        pred_loss = tf.concat(
+                            [giou_loss_tmp, giou_loss_tmp, giou_loss_tmp, giou_loss_tmp, conf_loss_tmp, prob_loss_tmp],
+                            axis=-1)
+                        conv_loss = tf.reshape(pred_loss, shape=(
+                            pred_loss.shape[0], pred_loss.shape[1], pred_loss.shape[2],
+                            pred_loss.shape[3] * pred_loss.shape[4]))
+
+                        losses.append(conv_loss)
+                        losses.append(pred_loss)
+
+                        giou_loss_tmp = tf.reduce_mean(tf.reduce_sum(giou_loss_tmp, axis=[1, 2, 3, 4]))
+                        conf_loss_tmp = tf.reduce_mean(tf.reduce_sum(conf_loss_tmp, axis=[1, 2, 3, 4]))
+                        prob_loss_tmp = tf.reduce_mean(tf.reduce_sum(prob_loss_tmp, axis=[1, 2, 3, 4]))
+
                         giou_loss += giou_loss_tmp
                         conf_loss += conf_loss_tmp
                         prob_loss += prob_loss_tmp
@@ -248,7 +263,7 @@ class CreateTrainImgClassNN:
                             exit()
                         nan_errors += 1
                     else:
-                        gradients = tape.gradient(total_loss, self.model.trainable_variables)
+                        gradients = tape.gradient(losses, self.model.trainable_variables)
                         gradients = [tf.clip_by_norm(g, Constants.GRAD_NORM) for g in gradients]
                         optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 

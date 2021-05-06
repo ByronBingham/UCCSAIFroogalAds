@@ -77,7 +77,9 @@ class YoloV3Dataset(object):
                     break
                 self.iter_start += 1
 
-                image = np.asarray(tf.cast(element[1]["image"], dtype=tf.float32))
+                image = np.asarray(tf.cast(element[1]["image"], dtype=tf.float32)) / 255.0
+                image = tf.image.resize(image, size=Constants.MODEL_SIZE)
+
                 # original code was designed for coco data set, which its data is not normalized. Open images v4 is
                 # normalized so we need to de-normalize it here
                 bboxes = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32)) * Constants.MODEL_SIZE[
@@ -88,13 +90,15 @@ class YoloV3Dataset(object):
 
                 label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
 
-                # batch_image[num, :, :, :] = tf.image.resize(image, size=Constants.MODEL_SIZE)
                 batch_label_sbbox[num, :, :, :, :] = label_sbbox
                 batch_label_mbbox[num, :, :, :, :] = label_mbbox
                 batch_label_lbbox[num, :, :, :, :] = label_lbbox
                 batch_sbboxes[num, :, :] = sbboxes
                 batch_mbboxes[num, :, :] = mbboxes
                 batch_lbboxes[num, :, :] = lbboxes
+
+                batch_image[num] = image
+
                 num += 1
 
             self.batch_count += 1

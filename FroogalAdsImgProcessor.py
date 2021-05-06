@@ -5,6 +5,7 @@ from modules import ImgClassModels
 import pandas as pd
 from modules import Constants
 from modules import Yolov3
+import matplotlib as matplot
 
 CLASSES = 100
 LABEL_NAME_PATH = ""
@@ -39,7 +40,7 @@ class ImgProcessor:
         except Exception as e:
             print(e)
 
-        self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=True,
+        self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=False,
                                           CLASSES=Constants.CLASSES)
         self.model.load_weights(Constants.CHECKPOINT_PATH)
         # self.loadLabelNames(LABEL_NAME_PATH)
@@ -105,27 +106,57 @@ class ImgProcessor:
     def display_bboxes(self, path):
         img = Image.open(path)
 
-        img = img.resize(size=Constants.MODEL_SIZE)
+        img_resize = img.resize(size=Constants.MODEL_SIZE)
 
-        imgArr = tf.keras.preprocessing.image.img_to_array(img=img, dtype='float32')
-        imgArr = np.asarray([imgArr])
+        imgArr = tf.keras.preprocessing.image.img_to_array(img=img_resize, dtype='float32')
+        imgArr = np.asarray([imgArr]) / 255.0
         print(imgArr.shape)
         with tf.device('/GPU:0'):
             prediction = self.model(imgArr)
 
         best_pred = []
-        for s in [1, 3, 5]:
-            tmp1 = prediction[s][0, ..., 4]
+        for s in range(3):
+            tmp1 = np.array(prediction[s][..., 4])
             tmp2 = tf.reduce_mean(tmp1)
-            best = np.argwhere(tmp1 > tmp2)
+            tmp3 = tf.reduce_max(tmp1)
+            tmp4 = float(tmp2) * 5 / (s + 1)
+            best = np.argwhere(tmp1 > tmp4)
             if len(best) > 0:
-                best_pred.append(best)
+                for b in best:
+                    p = prediction[s][b[0]][b[1]][b[2]][b[3]]
+                    best_pred.append(p)
 
-        if len(best_pred) is 0:
+        if len(best_pred) == 0:
             print("No objects detected. Try again")
             return
 
         best_pred = np.array(best_pred)
+
+        bboxes = best_pred[..., 0:4] / Constants.MODEL_SIZE[0]
+
+        x_min = bboxes[..., 0] - bboxes[..., 2] / 2.0
+        y_min = bboxes[..., 1] - bboxes[..., 3] / 2.0
+        x_max = bboxes[..., 0] + bboxes[..., 2] / 2.0
+        y_max = bboxes[..., 1] + bboxes[..., 3] / 2.0
+
+        x_min = tf.expand_dims(x_min, axis=-1)
+        y_min = tf.expand_dims(y_min, axis=-1)
+        x_max = tf.expand_dims(x_max, axis=-1)
+        y_max = tf.expand_dims(y_max, axis=-1)
+
+        tmp = bboxes
+        bboxes = tf.concat([y_min, x_min, y_max, x_max], axis=-1)
+
+        colors = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        img = tf.keras.preprocessing.image.img_to_array(img=img, dtype='float32')
+        img_in = tf.expand_dims(input=img, axis=0)
+        bboxes = tf.expand_dims(input=bboxes, axis=0)
+        img = tf.image.draw_bounding_boxes(images=img_in, boxes=bboxes, colors=colors)[0]
+
+        img = tf.cast(img, dtype=tf.uint8)
+        img = np.array(img)
+        img = Image.fromarray(img)
+        img.save(fp=path + "_annotated.png")
 
 
 imgProc = ImgProcessor()
