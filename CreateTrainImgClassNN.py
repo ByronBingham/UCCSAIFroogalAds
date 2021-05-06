@@ -11,17 +11,6 @@ from modules import Yolov3
 from modules import Dataset
 from modules import YoloLossFunctions
 
-"""
-open_images_v4_train = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
-                                 split='train[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
-
-open_images_v4_test = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/",
-                                split='test[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
-
-
-# test = tfds.load("open_images_v4", shuffle_files=True, data_dir="x:/open_images_v4_dataset/", split=['train[:1%]', 'test[:1%'])
-"""
-
 
 class CreateTrainImgClassNN:
 
@@ -34,13 +23,15 @@ class CreateTrainImgClassNN:
         self.train_data = Dataset.YoloV3Dataset('train')
         self.test_data = Dataset.YoloV3Dataset('test')
 
+        self.learning_rate = Constants.TRAINING_SPEED
+
     def main(self):
         self.TF_Init()
 
         # create model
-        # (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants._MODEL_SIZE[0],
+        # (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants.MODEL_SIZE[0],
         #                                                                 n_classes=Constants.CLASSES, training=True)
-        self.model = Yolov3.Create_Yolov3(input_size=Constants._MODEL_SIZE[0], channels=3, training=True,
+        self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=True,
                                           CLASSES=Constants.CLASSES)
         # self.model.compile(loss=ImgClassModels.custom_yolo_cost,
         #                   optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
@@ -58,24 +49,11 @@ class CreateTrainImgClassNN:
             print("Weights not loaded. Will create new weights")
             print(str(e))
 
+        if Constants.DO_EVAL_FIRST:
+            self.evalStep()
+
         # start training
-        i = 0
-        for i in range(0, Constants.TRAINING_STEPS):  # i < imagesToTrain:
-            self.trainStep()
-            print("Training step " + str(i) + " finished\n")
-
-            if i % Constants.EVAL_FREQUENCY == Constants.EVAL_FREQUENCY - 1:
-                try:
-                    print("Evaluating model...")
-                    self.evalStep()
-                    print("\n")
-
-                except Exception as e:
-                    print("Training step failed. Skipping step")
-                    print(str(e) + "\n")
-                    continue
-
-            i += 1
+        self.train()
 
         self.printResults()
 
@@ -115,7 +93,7 @@ class CreateTrainImgClassNN:
             bbox = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32))
             label = element[1]["bobjects"]["label"]
             # TODO: change coordinates to xywh format
-            x = tf.image.resize(images=image, size=Constants._MODEL_SIZE)
+            x = tf.image.resize(images=image, size=Constants.MODEL_SIZE)
             labels = []
             for l in label:
                 labels.append(
@@ -141,7 +119,8 @@ class CreateTrainImgClassNN:
     """
 
     def evalStep(self):
-        accuracy = 0.0
+        print("Evaluating...")
+        bbox_accuracy, class_accuracy = (0.0, 0.0)
 
         batches = 0
         for batch in self.test_data:
@@ -152,31 +131,78 @@ class CreateTrainImgClassNN:
 
             model_output = self.model(x_batch, training=False)
 
-            accuracy += self.eval_accuracy(model_output=model_output, label=y_batch)
+            bbox_accuracy_tmp, class_accuracy_tmp = self.eval_accuracy(pred=model_output, label=y_batch)
+            bbox_accuracy += bbox_accuracy_tmp
+            class_accuracy += class_accuracy_tmp
 
-        accuracy = accuracy / Constants.EVAL_BATCHES  # average accuracy over all batches
+            print("Eval batch " + str(batches + 1) + "/" + str(Constants.EVAL_BATCHES) + " complete")
+            batches += 1
 
-        print("Evaluation finished. Accuracy: " + str(accuracy))
+        bbox_accuracy = bbox_accuracy / Constants.EVAL_BATCHES  # average accuracy over all batches
+        class_accuracy = class_accuracy / Constants.EVAL_BATCHES
 
-        self.validation_acc_history.append((self.epochs, accuracy))
+        print("Evaluation finished. Detection Accuracy: " + str(bbox_accuracy) + "    Classification Accuracy: " + str(
+            class_accuracy))
 
-    def eval_accuracy(self, model_output, label):
-        pred = model_output[1]
+        self.validation_acc_history.append((self.epochs, (bbox_accuracy + class_accuracy) / 2.0))
 
-        tp = YoloLossFunctions.get_TP(pred=pred, label=label)
-        fp = YoloLossFunctions.get_FP(pred=pred, label=label)
-        fn = YoloLossFunctions.get_FN(pred=pred, label=label)
+    def eval_accuracy(self, pred, label):
 
-        prec = tp / (tp + fp)
-        rec = tp / (tp + fn)
+        tp_bbox = 0
+        fp_bbox = 0
+        fn_bbox = 0
 
-        accuracy = 2 * (prec * rec) / (prec + rec)
-        return accuracy
+        tp_class = 0
+        fp_class = 0
+        fn_class = 0
 
-    def trainStep(self):
+        for s in range(3):
+            for b in range(len(pred[0])):
+                decoded_pred = pred[s * 2 + 1][b]
+                b_label = label[s]
+                b_label = b_label[0][b]
+
+                tmp_tp_bbox, tmp_fp_bbox, tmp_fn_bbox, tmp_tp_class, tmp_fp_class, tmp_fn_class = \
+                    YoloLossFunctions.get_accuracy_metrics(pred=decoded_pred, label=b_label)
+
+                tp_bbox += tmp_tp_bbox
+                fp_bbox += tmp_fp_bbox
+                fn_bbox += tmp_fn_bbox
+
+                tp_class += tmp_tp_class
+                fp_class += tmp_fp_class
+                fn_class += tmp_fn_class
+
+        bbox_accuracy, class_accuracy = (1.0, 1.0)
+
+        try:
+            prec = tp_bbox / (tp_bbox + fp_bbox)
+            rec = tp_bbox / (tp_bbox + fn_bbox)
+
+            bbox_accuracy = 2 * (prec * rec) / (prec + rec)
+
+            prec = tp_class / (tp_class + fp_class)
+            rec = tp_bbox / (tp_class + fn_class)
+
+            class_accuracy = 2 * (prec * rec) / (prec + rec)
+        except ZeroDivisionError:
+            if np.all([tp_bbox, fp_bbox, fn_bbox] == 0):
+                bbox_accuracy = 1.0
+            else:
+                bbox_accuracy = 0.0
+
+            if np.all([tp_class, fp_class, fn_class] == 0):
+                class_accuracy = 1.0
+            else:
+                class_accuracy = 0.0
+
+        return bbox_accuracy, class_accuracy
+
+    def train(self):
 
         time1 = dt.datetime.now()
-        for epoch in range(Constants.EPOCHS_PER_TRAINING_STEP):
+        nan_errors = 0
+        for epoch in range(Constants.EPOCHS):
 
             batches = 0
             for batch in self.train_data:
@@ -209,6 +235,9 @@ class CreateTrainImgClassNN:
                     total_loss = giou_loss + conf_loss + prob_loss
 
                     if tf.math.is_nan(float(total_loss)):
+                        if nan_errors > Constants.MAX_NAN_ERRORS:
+                            print("Too many NaN errors. Aborting training...")
+                            exit()
                         print("NaN error. Resetting model weights to last checkpoint")
                         try:
                             self.model.load_weights(Constants.CHECKPOINT_PATH)
@@ -217,12 +246,17 @@ class CreateTrainImgClassNN:
                         except Exception as e:
                             print("Weights not loaded. Aborting training")
                             exit()
+                        nan_errors += 1
                     else:
                         gradients = tape.gradient(total_loss, self.model.trainable_variables)
                         gradients = [tf.clip_by_norm(g, Constants.GRAD_NORM) for g in gradients]
                         optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
 
-                    print("Batch #" + str(batches) + "    Loss: " + str(float(total_loss)))
+                    print("Batch #" + str(batches) + "/" + str(Constants.EPOCH_SIZE) + " complete    Loss: " + str(
+                        float(total_loss)))
+                    print("IOU loss: " + str(float(giou_loss)) + "    Conf loss: " + str(
+                        float(conf_loss)) + "    Class loss: " + str(
+                        float(prob_loss)) + "\n")
 
                 batches += 1
 
@@ -231,7 +265,11 @@ class CreateTrainImgClassNN:
                     self.model.save_weights(Constants.CHECKPOINT_PATH)
 
             print("Epoch " + str(epoch) + " finished. Evaluating model")
-            # self.evalStep()
+            self.evalStep()
+
+            if self.epochs % Constants.REDUCE_LEARNING_AFTER_EPOCHS >= Constants.REDUCE_LEARNING_AFTER_EPOCHS - 1:
+                self.learning_rate = self.learning_rate / Constants.REDUCE_LEARNING_BY
+                print("Updating learning rate. New learning rate: " + str(self.learning_rate))
 
             self.epochs += 1
 

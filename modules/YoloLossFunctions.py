@@ -4,16 +4,73 @@ from . import Constants
 
 
 # if bbox prediction predicts an object
-def get_TP(pred, label):
-    print()
+def get_accuracy_metrics(pred, label):
+    pred_bbox = pred[..., :4]
+    pred_class = pred[..., 5:]
 
-# if bbox predicts an object that doesn't exist
-def get_FP(pred, label):
-    print()
+    tp_bbox, fp_bbox, fn_bbox, tp_class, fp_class, fn_class = (0, 0, 0, 0, 0, 0)
 
-# if an object is not detected by any bbox
-def get_FN(pred, label):
-    print()
+    obj_indx = np.argwhere(label[..., 4])
+
+    # check for tp and fn
+    for ind in obj_indx:
+        if pred[ind[0], ind[1], ind[2], 4] >= Constants.CONF_THRESHOLD:
+            # check iou to make sure bbox is close enough
+            iou = single_iou(pred=pred[ind[0], ind[1], ind[2], 0:4], label=label[ind[0], ind[1], ind[2], 0:4])
+            if iou >= Constants.YOLO_IOU_LOSS_THRESH:
+                tp_bbox += 1
+            else:
+                fn_bbox += 1
+
+            if np.argmax(pred[ind[0], ind[1], ind[2], 5:]) is np.argmax(label[ind[0], ind[1], ind[2], 5:]):
+                tp_class += 1
+            else:
+                fn_class += 1
+
+        else:
+            fn_bbox += 1
+            fn_class += 1
+
+    # check for fp
+    pred_indx = np.argwhere(pred[..., 4] >= Constants.CONF_THRESHOLD)
+    predictions = len(pred_indx)
+    objects = len(obj_indx)
+
+    fps = predictions - objects
+    fps = fps if fps >= 0 else 0
+
+    fp_bbox += fps
+    fp_class += fps
+
+    return tp_bbox, fp_bbox, fn_bbox, tp_class, fp_class, fn_class
+
+
+def single_iou(pred, label):
+    pred_x, pred_y, pred_w, pred_h = pred
+
+    label_x, label_y, label_w, label_h = label
+
+    pred_x_min = pred_x - pred_w / 2.0
+    pred_x_max = pred_x + pred_w / 2.0
+    pred_y_min = pred_y - pred_h / 2.0
+    pred_y_max = pred_y + pred_h / 2.0
+
+    label_x_min = label_x - label_w / 2.0
+    label_x_max = label_x + label_w / 2.0
+    label_y_min = label_y - label_h / 2.0
+    label_y_max = label_y + label_h / 2.0
+
+    x_overlap = min(pred_x_max, label_x_max) - max(pred_x_min, label_x_min)
+    y_overlap = min(pred_y_max, label_y_max) - max(pred_y_min, label_y_min)
+
+    intersection = x_overlap * y_overlap
+
+    total_area = pred_w * pred_h + label_w * label_h - intersection
+
+    iou = intersection / total_area
+
+    return iou
+
 
 def compute_loss_custom(pred, label):
     """
@@ -34,12 +91,12 @@ def compute_loss_custom(pred, label):
     total_loss = None
     previous_stride_cells = 0
     for s in range(len(Constants.YOLO_STRIDES)):
-        cells_per_axis = (Constants._MODEL_SIZE[0] // Constants.YOLO_STRIDES[s])
+        cells_per_axis = (Constants.MODEL_SIZE[0] // Constants.YOLO_STRIDES[s])
         next_stride = previous_stride_cells + np.square(cells_per_axis)
         pred_stride = pred[:, previous_stride_cells:next_stride, ...]  # predictions for the current detection layer
         previous_stride_cells = next_stride
 
-        model_dimension_size = Constants._MODEL_SIZE[0]
+        model_dimension_size = Constants.MODEL_SIZE[0]
         stride_width = cells_per_axis / model_dimension_size
 
         # for each cell, find any centers that exist in the cell,
@@ -151,7 +208,7 @@ def compute_loss_custom(pred, label):
 
 
 def mask_responsible_cells(pred, label, cells_per_axis):
-    model_dimension_size = Constants._MODEL_SIZE[0]
+    model_dimension_size = Constants.MODEL_SIZE[0]
     cell_size = model_dimension_size / cells_per_axis
 
     mask_responsible = np.zeros(shape=[pred.shape[0], pred.shape[1]], dtype=np.float32)
@@ -176,7 +233,7 @@ def mask_responsible_cells(pred, label, cells_per_axis):
 
 def mask_cells_objects(pred, label, cells_per_axis):
     # TODO: optimize; calculate prob's for each obj instead of for every cell
-    model_dimension_size = Constants._MODEL_SIZE[0]
+    model_dimension_size = Constants.MODEL_SIZE[0]
     cell_size = model_dimension_size / cells_per_axis
 
     obj_prob = np.zeros(shape=[pred.shape[0], pred.shape[1], 3, Constants.CLASSES])
@@ -229,3 +286,18 @@ def mask_cells_objects(pred, label, cells_per_axis):
                         a_max=1.0, a_min=0.0)
 
     return obj_prob
+
+
+# gets the best bboxes for one stride and one batch
+def nonmax_suppression(pred):
+    max_boxes = []
+
+    pred = tf.reshape(pred, shape=[pred.shape[0] * pred.shape[1] * pred.shape[2], 5 + Constants.CLASSES])
+
+    for p in pred:
+        if p[4] >= Constants.CONF_THRESHOLD:  # check if confidence value is high enough
+            max_boxes.append(p)
+
+    max_boxes = np.array(max_boxes)
+
+    return max_boxes

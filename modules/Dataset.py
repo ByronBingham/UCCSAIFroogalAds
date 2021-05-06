@@ -39,7 +39,7 @@ class YoloV3Dataset(object):
                                             data_dir="x:/open_images_v4_dataset/",
                                             split='test[:' + str(Constants.DATASET_PERCENTAGE) + '%]')
 
-        self.train_input_size = Constants._MODEL_SIZE[0]
+        self.train_input_size = Constants.MODEL_SIZE[0]
         self.strides = np.array(Constants.YOLO_STRIDES)
         self.num_classes = Constants.CLASSES
         self.anchors = (np.array(Constants._ANCHORS).T / self.strides).T
@@ -80,7 +80,7 @@ class YoloV3Dataset(object):
                 image = np.asarray(tf.cast(element[1]["image"], dtype=tf.float32))
                 # original code was designed for coco data set, which its data is not normalized. Open images v4 is
                 # normalized so we need to de-normalize it here
-                bboxes = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32)) * Constants._MODEL_SIZE[
+                bboxes = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32)) * Constants.MODEL_SIZE[
                     0]
                 class_index = element[1]["bobjects"]["label"]
                 class_index = np.expand_dims(class_index, axis=-1)
@@ -88,7 +88,7 @@ class YoloV3Dataset(object):
 
                 label_sbbox, label_mbbox, label_lbbox, sbboxes, mbboxes, lbboxes = self.preprocess_true_boxes(bboxes)
 
-                # batch_image[num, :, :, :] = tf.image.resize(image, size=Constants._MODEL_SIZE)
+                # batch_image[num, :, :, :] = tf.image.resize(image, size=Constants.MODEL_SIZE)
                 batch_label_sbbox[num, :, :, :, :] = label_sbbox
                 batch_label_mbbox[num, :, :, :, :] = label_mbbox
                 batch_label_lbbox[num, :, :, :, :] = label_lbbox

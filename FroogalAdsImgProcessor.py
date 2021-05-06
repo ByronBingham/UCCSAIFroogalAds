@@ -3,24 +3,26 @@ from PIL import Image
 import numpy as np
 from modules import ImgClassModels
 import pandas as pd
+from modules import Constants
+from modules import Yolov3
 
 CLASSES = 100
-MODEL_CHECKPOINT = "./model_cifar_0.2"
-LABEL_NAME_PATH = "./cifar-100-fine_label_names.txt"
+LABEL_NAME_PATH = ""
 CLASS_THRESHOLD = 1.0
 CSV_PATH = "./testcsv.csv"
 
 
 class ImgProcessor:
-
+    """
     def loadLabelNames(self, labelFile):
-        self.labelNames = []
+
         file = open(labelFile)
         while True:
             line = file.readline()
             if len(line.strip()) == 0:
                 break
             self.labelNames.append(line.strip())
+    """
 
     def __init__(self):
         tf.compat.v1.enable_control_flow_v2()
@@ -37,10 +39,12 @@ class ImgProcessor:
         except Exception as e:
             print(e)
 
-        self.model = ImgClassModels.model_cifar_01(classes=CLASSES, trainingSpeed=0.001,
-                                                   dropout_rate=0.0, training=True)
-        self.model.load_weights(MODEL_CHECKPOINT)
-        self.loadLabelNames(LABEL_NAME_PATH)
+        self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=True,
+                                          CLASSES=Constants.CLASSES)
+        self.model.load_weights(Constants.CHECKPOINT_PATH)
+        # self.loadLabelNames(LABEL_NAME_PATH)
+
+        self.labelNames = []
 
     def oneHotToLabelName(self, oneHotIn):
         i = 0
@@ -82,7 +86,7 @@ class ImgProcessor:
             except Exception as e:
                 print("ERROR: " + str(e) + "\nPlease enter a valid path")
 
-            self.classifyImage(uInput)
+            self.display_bboxes(uInput)
 
     def updateCSV(self, cls, count=1):
         csv_dataframe = pd.read_csv(CSV_PATH, index_col=0)
@@ -98,8 +102,33 @@ class ImgProcessor:
         print(csv_dataframe)
         csv_dataframe.to_csv(path_or_buf=CSV_PATH)
 
+    def display_bboxes(self, path):
+        img = Image.open(path)
+
+        img = img.resize(size=Constants.MODEL_SIZE)
+
+        imgArr = tf.keras.preprocessing.image.img_to_array(img=img, dtype='float32')
+        imgArr = np.asarray([imgArr])
+        print(imgArr.shape)
+        with tf.device('/GPU:0'):
+            prediction = self.model(imgArr)
+
+        best_pred = []
+        for s in [1, 3, 5]:
+            tmp1 = prediction[s][0, ..., 4]
+            tmp2 = tf.reduce_mean(tmp1)
+            best = np.argwhere(tmp1 > tmp2)
+            if len(best) > 0:
+                best_pred.append(best)
+
+        if len(best_pred) is 0:
+            print("No objects detected. Try again")
+            return
+
+        best_pred = np.array(best_pred)
+
 
 imgProc = ImgProcessor()
-# imgProc.demoMode()
+imgProc.demoMode()
 # imgProc.updateCSV(cls='cat', count=15)
-imgProc.updateCSV(cls='money', count=1)
+# imgProc.updateCSV(cls='money', count=1)
