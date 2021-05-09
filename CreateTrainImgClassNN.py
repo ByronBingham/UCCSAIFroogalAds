@@ -1,12 +1,16 @@
+"""
+CreateTrainImgClassNN.py
+
+This script is for training the Froogal Ads image detection/classification network.
+
+Author: Byron Bingham
+"""
+
 import tensorflow as tf
 import numpy as np
 import datetime as dt
-import random
-from modules import ImgClassModels
 from matplotlib import pyplot
 from modules import Constants
-import tensorflow_datasets as tfds
-from modules import YoloLossFunctions as yloss
 from modules import Yolov3
 from modules import Dataset
 from modules import YoloLossFunctions
@@ -26,21 +30,19 @@ class CreateTrainImgClassNN:
         self.learning_rate = Constants.TRAINING_SPEED
 
     def main(self):
+        """
+        Sets up Tensorflow parameters, creates a model and loads weights, and then starts training
+        :return:
+        """
         self.TF_Init()
 
         # create model
-        # (input_layer, output_layer) = ImgClassModels.getYoloModelLayers(model_size=Constants.MODEL_SIZE[0],
-        #                                                                 n_classes=Constants.CLASSES, training=True)
         self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=True,
                                           CLASSES=Constants.CLASSES)
-        # self.model.compile(loss=ImgClassModels.custom_yolo_cost,
-        #                   optimizer=tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED),
-        #                   metrics=['accuracy']) ==
+
         self.model.summary()
 
         # load model checkpoint if exists
-        # TODO: load darknet53/yolo weights
-
         try:
             if Constants.LOAD_WEIGHTS:
                 self.model.load_weights(Constants.CHECKPOINT_PATH)
@@ -71,53 +73,6 @@ class CreateTrainImgClassNN:
         except Exception as e:
             print(e)
 
-    """
-    def get_batch(self, training):
-        print("Creating batch...")
-        if training:
-            ds = open_images_v4_train.enumerate(start=self.train_start)
-        else:
-            ds = open_images_v4_test.enumerate(start=self.test_start)
-
-        x_batch = []
-        y_batch = []
-
-        elements_in_batch = 0
-        for element in ds:
-            if training:
-                self.train_start += 1
-            else:
-                self.test_start += 1
-
-            image = np.asarray(tf.cast(element[1]["image"], dtype=tf.float32))
-            bbox = np.asarray(tf.cast(element[1]["bobjects"]["bbox"], dtype=tf.float32))
-            label = element[1]["bobjects"]["label"]
-            # TODO: change coordinates to xywh format
-            x = tf.image.resize(images=image, size=Constants.MODEL_SIZE)
-            labels = []
-            for l in label:
-                labels.append(
-                    np.asarray(tf.one_hot(indices=l, depth=Constants.CLASSES, on_value=1.0, off_value=0.0)).astype(
-                        np.float32))
-            labels = np.asarray(labels)
-            y = tf.concat([bbox, labels], axis=-1)
-
-            x = np.asarray(x)
-            y = np.asarray(y)
-
-            x_batch.append(x)
-            y_batch.append(y)
-            elements_in_batch += 1
-            if elements_in_batch >= Constants.BATCH_SIZE:
-                break
-
-        x_batch = np.asarray(x_batch) / 255.0
-        y_batch = np.asarray(y_batch)
-
-        print("Batch finished.")
-        return x_batch, y_batch
-    """
-
     def evalStep(self):
         print("Evaluating...")
         bbox_accuracy, class_accuracy = (0.0, 0.0)
@@ -127,7 +82,7 @@ class CreateTrainImgClassNN:
             if batches > Constants.EVAL_BATCHES - 1:
                 break
 
-            x_batch, y_batch = batch
+            x_batch, y_batch, num_of_objects = batch
 
             model_output = self.model(x_batch, training=False)
 
@@ -199,9 +154,19 @@ class CreateTrainImgClassNN:
         return bbox_accuracy, class_accuracy
 
     def train(self):
+        """
+        Trains the model.
 
+        TODO: combine losses/gradients from smaller batches to effectively have larger batches
+        :return:
+        """
         time1 = dt.datetime.now()
         nan_errors = 0
+
+        iou_loss_roll = np.array([])
+        conf_loss_roll = np.array([])
+        class_loss_roll = np.array([])
+
         for epoch in range(Constants.EPOCHS):
 
             batches = 0
@@ -214,7 +179,7 @@ class CreateTrainImgClassNN:
                 total_loss = None
 
                 # batch = tf.where(tf.math.is_nan(batch), tf.zeros_like(batch), batch)
-                x_batch, y_batch = batch
+                x_batch, y_batch, num_of_objects = batch
 
                 optimizer = tf.keras.optimizers.Adam(learning_rate=Constants.TRAINING_SPEED,
                                                      epsilon=Constants.ADAM_EPSILON)
@@ -252,6 +217,15 @@ class CreateTrainImgClassNN:
                         prob_loss += prob_loss_tmp
 
                     total_loss = giou_loss + conf_loss + prob_loss
+                    iou_loss_roll = np.append(iou_loss_roll, giou_loss / num_of_objects)
+                    if len(iou_loss_roll) > Constants.ROLLING_AVG_LENGTH:
+                        np.delete(iou_loss_roll, 0)
+                    conf_loss_roll = np.append(conf_loss_roll, conf_loss / num_of_objects)
+                    if len(conf_loss_roll) > Constants.ROLLING_AVG_LENGTH:
+                        np.delete(conf_loss_roll, 0)
+                    class_loss_roll = np.append(class_loss_roll, prob_loss / num_of_objects)
+                    if len(class_loss_roll) > Constants.ROLLING_AVG_LENGTH:
+                        np.delete(class_loss_roll, 0)
 
                     if tf.math.is_nan(float(total_loss)):
                         if nan_errors > Constants.MAX_NAN_ERRORS:
@@ -273,9 +247,14 @@ class CreateTrainImgClassNN:
 
                     print("Batch #" + str(batches) + "/" + str(Constants.EPOCH_SIZE) + " complete    Loss: " + str(
                         float(total_loss)))
-                    print("IOU loss: " + str(float(giou_loss)) + "    Conf loss: " + str(
-                        float(conf_loss)) + "    Class loss: " + str(
-                        float(prob_loss)) + "\n")
+                    print("IOU loss: " + str(float(giou_loss / num_of_objects)) + "    Conf loss: " + str(
+                        float(conf_loss / num_of_objects)) + "    Class loss: " + str(
+                        float(prob_loss / num_of_objects)))
+                    print("Rolling average losses")
+                    print("IOU loss: " + str(
+                        np.sum(iou_loss_roll) / len(iou_loss_roll)) + "    Conf loss: " + str(
+                        np.sum(conf_loss_roll) / len(conf_loss_roll)) + "    Class loss: " + str(
+                        np.sum(class_loss_roll) / len(class_loss_roll)) + "\n")
 
                 batches += 1
 
@@ -308,9 +287,7 @@ class CreateTrainImgClassNN:
         pyplot.xlabel("Epochs")
         pyplot.title("Training Accuracy vs Validation Accuracy\n" +
                      "B size = " + str(Constants.BATCH_SIZE) +
-                     "; T speed = " + str(Constants.TRAINING_SPEED) +
-                     "Dropout = " + str(Constants.DROPOUT_RATE) +
-                     "D Aug = " + str(Constants.DATA_AUGMENTATION))
+                     "; T speed = " + str(Constants.TRAINING_SPEED))
 
         pyplot.show()
 

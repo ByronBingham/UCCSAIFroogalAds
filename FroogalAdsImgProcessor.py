@@ -1,22 +1,42 @@
+"""
+FroogalAdsImgProcessor.py
+
+This script is for running a process to classifiy objects in images and pass the data to the rest of the Froogal ads
+service by editing a CSV file.
+
+Calling "demoMode" will run a loop that will take in a file path to an image from the user and output an image with
+bounding boxes on a copy of the given image.
+Calling "classMode" will run a loop that will look for images in a directory. If images are found, they will be passed
+in to the detection/classification network and the output classifications will be added to a CSV file
+
+Author: Byron Bingham
+"""
+
 import tensorflow as tf
 from PIL import Image
 import numpy as np
-from modules import ImgClassModels
 import pandas as pd
 from modules import Constants
 from modules import Yolov3
-import matplotlib as matplot
+import time
+import os
 
 CLASSES = 100
-LABEL_NAME_PATH = ""
-CLASS_THRESHOLD = 1.0
-CSV_PATH = "./testcsv.csv"
+LABEL_NAME_PATH = "yolo_class_descriptions.csv"
+CLASS_THRESHOLD = 0.9
+CSV_PATH = "testcsv.csv"
+IMAGES_DIR = "./images_in/"
 
 
 class ImgProcessor:
 
     def loadLabelNames(self, labelFile):
-
+        """
+        Loads the names for each classification label. These are used to decode the one hot output of the model into
+        strings that can be used to update the CSV file.
+        :param labelFile:
+        :return:
+        """
         file = open(labelFile)
         while True:
             line = file.readline()
@@ -48,35 +68,60 @@ class ImgProcessor:
                                               CLASSES=Constants.CLASSES)
             self.model.load_weights(Constants.CHECKPOINT_PATH)
         else:
+            # this loads pre-trained weights trained on the COCO data set. These weights only have 80 classes
             self.model = Yolov3.Create_Yolov3(input_size=Constants.MODEL_SIZE[0], channels=3, training=False,
                                               CLASSES=80)
             Yolov3.load_yolo_weights(model=self.model, weights_file="yolov3.weights")
 
     def oneHotToLabelName(self, oneHotIn):
-        i = 0
-        for i in range(0, len(oneHotIn[0])):
-            tmp = oneHotIn[0][i]
-            if tmp >= CLASS_THRESHOLD:
-                break
+        """
+        Decodes one-hot input into label strings for updating the CSV
+        :param oneHotIn:
+        :return:
+        """
+        max_index = np.argmax(oneHotIn)
 
-        return self.labelNames[i]
+        return self.labelNames[max_index]
 
     def classifyImage(self, imagePath):
+        """
+        Classifies objects in an image and updates the CSV with all classifications
+        :param imagePath:
+        :return:
+        """
         img = Image.open(imagePath)
 
-        img.resize(size=(32, 32))
+        img = img.resize(size=Constants.MODEL_SIZE)
 
-        imgArr = tf.keras.preprocessing.image.img_to_array(img=img, dtype='float32')
+        imgArr = tf.keras.preprocessing.image.img_to_array(img=img, dtype='float32') / 255.0
         imgArr = np.asarray([imgArr])
         print(imgArr.shape)
         with tf.device('/GPU:0'):
-            prediction = self.model.predict(x=imgArr)
+            prediction = self.model(imgArr)
 
-        print("Prediction:\n")
-        print(str(prediction))
-        print("Label: " + self.oneHotToLabelName(prediction))
+        best_pred = []
+        for s in range(3):
+            pred_conf = np.array(prediction[s][..., 4])
+            best = np.argwhere(pred_conf > Constants.CONF_THRESHOLD)
+            if len(best) > 0:
+                for b in best:
+                    p = prediction[s][b[0]][b[1]][b[2]][b[3]]
+                    best_pred.append(p)
+
+        if len(best_pred) == 0:
+            print("No objects detected")
+            return
+
+        for p in best_pred:
+            class_one_hot = p[5:]
+            name = self.oneHotToLabelName(class_one_hot)
+            self.updateCSV(cls=name)
 
     def demoMode(self):
+        """
+        Runs a loop that asks for image files. Saves a copy of the given images with bounding boxes around objects.
+        :return:
+        """
         uInput = ""
         while True:
             uInput = input("Enter path to image or press \'q\' to exit:\n")
@@ -94,21 +139,43 @@ class ImgProcessor:
 
             self.display_bboxes(uInput)
 
+    def classMode(self):
+        """
+        Checks the specified directory for files (images) and classifies the objects in images whenever there are files
+        in the directory.
+        :return:
+        """
+        while True:
+            for f in os.listdir(IMAGES_DIR):
+                self.classifyImage(IMAGES_DIR + f)
+                os.remove(IMAGES_DIR + f)
+            time.sleep(3)
+
     def updateCSV(self, cls, count=1):
+        """
+        Adds the given class label to the CSV
+        :param cls:
+        :param count:
+        :return:
+        """
+        print(cls)
         csv_dataframe = pd.read_csv(CSV_PATH, index_col=0)
-        print(csv_dataframe)
+
         if cls in csv_dataframe.index:
             csv_dataframe.loc[cls, "count"] += count
         else:
             tmp = pd.DataFrame([[count]], columns=['count'], index=[cls])
             tmp.index.name = 'id'
-            print(tmp)
             csv_dataframe = csv_dataframe.append(tmp)
 
-        print(csv_dataframe)
         csv_dataframe.to_csv(path_or_buf=CSV_PATH)
 
     def display_bboxes(self, path):
+        """
+        For the specified image, saves a copy of the image that has bounding boxes around predicted objects
+        :param path:
+        :return:
+        """
         img = Image.open(path)
 
         img_resize = img.resize(size=Constants.MODEL_SIZE)
@@ -122,22 +189,11 @@ class ImgProcessor:
         best_pred = []
         for s in range(3):
             tmp1 = np.array(prediction[s][..., 4])
-            tmp5 = np.array(prediction[s][..., 0:4])
-            tmp6 = np.array(prediction[s][..., 5:])
-            tmp2 = tf.reduce_mean(tmp1)
-            tmp3 = tf.reduce_max(tmp1)
-            tmp4 = float(tmp2) * 6
             best = np.argwhere(tmp1 > Constants.CONF_THRESHOLD)
             if len(best) > 0:
                 for b in best:
                     p = prediction[s][b[0]][b[1]][b[2]][b[3]]
                     best_pred.append(p)
-
-        tmp7 = np.array(best_pred)[:, 5:]
-        tmp8 = tf.reduce_max(tmp7)
-        tmp9 = tf.reduce_mean(tmp7)
-        tmp7 = np.array(best_pred)[:, 5:]
-        tmp10 = np.array(best_pred)[:, 4]
 
         if len(best_pred) == 0:
             print("No objects detected. Try again")
@@ -174,5 +230,6 @@ class ImgProcessor:
 
 imgProc = ImgProcessor()
 imgProc.demoMode()
+# imgProc.classMode()
 # imgProc.updateCSV(cls='cat', count=15)
 # imgProc.updateCSV(cls='money', count=1)

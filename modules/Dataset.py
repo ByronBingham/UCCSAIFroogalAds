@@ -7,25 +7,23 @@
 #   GitHub      : https://github.com/pythonlessons/TensorFlow-2.x-YOLOv3
 #   Description : functions used to prepare dataset for custom training
 #
+#
+# Modified by Byron Bingham for use with the Froogal Ads network
 # ================================================================
-# TODO: transfer numpy to tensorflow operations
 
-import os
-import cv2
-import random
+
 import numpy as np
 import tensorflow as tf
 from . import Yolov3
 from . import Constants
 import tensorflow_datasets as tfds
-from PIL import Image
-
-"""
-modified by Byron Bingham
-"""
 
 
 class YoloV3Dataset(object):
+    """
+    modified by Byron Bingham. Removed some functionality for simplicity and modified for use with the Open Images V4 dataset
+    """
+
     # Dataset preprocess implementation
     def __init__(self, dataset_type):
         # self.input_sizes =
@@ -44,7 +42,7 @@ class YoloV3Dataset(object):
         self.train_input_size = Constants.MODEL_SIZE[0]
         self.strides = np.array(Constants.YOLO_STRIDES)
         self.num_classes = Constants.CLASSES
-        self.anchors = (np.array(Constants._ANCHORS).T / self.strides).T
+        self.anchors = (np.array(Constants.ANCHORS).T / self.strides).T
         self.anchor_per_scale = 3
         self.max_bbox_per_scale = Constants.YOLO_MAX_BBOX_PER_SCALE
 
@@ -76,6 +74,7 @@ class YoloV3Dataset(object):
             batch_lbboxes = np.zeros((self.batch_size, self.max_bbox_per_scale, 4), dtype=np.float32)
 
             num = 0
+            num_of_objects = 0
             for e in range(Constants.BATCH_SIZE):
                 element = next(self.ds_iterator)
                 self.iter_start += 1
@@ -87,6 +86,7 @@ class YoloV3Dataset(object):
                 # normalized so we need to de-normalize it here
                 bboxes = np.asarray(tf.cast(element["bobjects"]["bbox"], dtype=tf.float32)) * Constants.MODEL_SIZE[
                     0]
+                num_of_objects += len(bboxes)
                 class_index = element["bobjects"]["label"]
                 class_index = np.expand_dims(class_index, axis=-1)
                 bboxes = tf.concat([bboxes, class_index], axis=-1)
@@ -102,6 +102,8 @@ class YoloV3Dataset(object):
 
                 batch_image[num] = image
                 """
+                # debug code to verify the data going in to training
+                
                 tmp = image * 255.0
                 tmp = np.array(tmp)
                 tmp = tmp.astype(np.uint8)
@@ -116,7 +118,7 @@ class YoloV3Dataset(object):
             batch_medium_target = batch_label_mbbox, batch_mbboxes
             batch_larger_target = batch_label_lbbox, batch_lbboxes
 
-            return batch_image, (batch_smaller_target, batch_medium_target, batch_larger_target)
+            return batch_image, (batch_smaller_target, batch_medium_target, batch_larger_target), num_of_objects
 
     def preprocess_true_boxes(self, bboxes):
         label = [np.zeros((self.train_output_sizes[i], self.train_output_sizes[i], self.anchor_per_scale,

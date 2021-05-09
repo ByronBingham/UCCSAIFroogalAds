@@ -1,9 +1,18 @@
+"""
+YoloLossFunctions.py
+
+Functions used for calculating loss and accuracy
+
+Did not end up using "compute_loss_custom" as it was not differentiable, and so did not work for back-propagation
+
+Author: Byron Bingham
+"""
+
 import numpy as np
 import tensorflow as tf
 from . import Constants
 
 
-# if bbox prediction predicts an object
 def get_accuracy_metrics(pred, label):
     pred_bbox = pred[..., :4]
     pred_class = pred[..., 5:]

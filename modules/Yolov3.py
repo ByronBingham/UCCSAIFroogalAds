@@ -15,8 +15,13 @@ from tensorflow.keras.regularizers import l2
 from . import Constants
 
 STRIDES = np.array(Constants.YOLO_STRIDES)
-ANCHORS = (np.array(Constants._ANCHORS).T / STRIDES).T
+ANCHORS = (np.array(Constants.ANCHORS).T / STRIDES).T
 
+"""
+Note: this file was mostly used for its loss function since it is differentiable. The model implementation was used
+to be compatible with the loss function. Given more time I would have liked to use my own implementation for both. See
+the github history for my attempts at loss/model implementations.
+"""
 
 class BatchNormalization(BatchNormalization):
     # "Frozen state" and "inference mode" are two separate concepts.
@@ -326,6 +331,10 @@ def bbox_ciou(boxes1, boxes2):
 
 
 def compute_loss(pred, conv, label, bboxes, i=0, CLASSES=Constants.CLASSES):
+    """
+    Modified this function to split apart the loss. Instead of having a single scalar value as a loss, the function
+    now gives a separate loss for each component of the prediction.
+    """
     NUM_CLASS = CLASSES
     conv_shape = tf.shape(conv)
     batch_size = conv_shape[0]
